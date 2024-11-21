@@ -13,46 +13,33 @@ int main() {
             return -1;
         }
 
-        // Setup camera with better position to see lighting
+        std::cout << "\nSetting up camera..." << std::endl;
+        // Setup camera with optimal position for scaled and rotated Ironman model
         Camera camera(
-            glm::vec3(3.0f, 2.0f, 3.0f),     // Position - moved back and up for better view
-            glm::vec3(0.0f, 0.5f, 0.0f),     // Look at - slightly up from origin
-            glm::vec3(0.0f, 1.0f, 0.0f),     // Up vector
+            glm::vec3(0.0f, 1.8f, -3.5f),     // Position - diagonal view from front
+            glm::vec3(0.0f, 0.8f, 0.0f),     // Look at - centered on model's chest
+            glm::vec3(0.0f, -1.0f, 0.0f),     // Up vector
             45.0f,                            // FOV - narrower for less distortion
             16.0f/9.0f,                       // Aspect ratio
-            0.1f,                             // Aperture - slight DOF
-            4.0f                              // Focus distance
+            1e-5f,                            // Aperture - small for depth of field
+            3.5f                              // Focus distance - adjusted for room size
         );
 
-        // Setup renderer with higher quality settings
+        std::cout << "Setting up renderer..." << std::endl;
+        // Setup renderer with high quality settings
         Renderer::Settings settings;
-        settings.width = 1920;                // Full HD resolution
-        settings.height = 1080;               // 16:9 aspect ratio
-        settings.samplesPerPixel = 100;       // More samples for better quality
-        settings.maxBounces = 5;              // More bounces for better global illumination
+        settings.width = 1980;                // Full HD resolution
+        settings.height = 1080;
+        settings.samplesPerPixel = 10;       // More samples for better quality
+        settings.maxBounces = 4;              // More bounces for better reflections
         settings.gamma = 2.2f;                // Standard gamma correction
-
-        // Create preview settings for quick test
-        bool previewMode = true;  // Set to false for final render
-        if (previewMode) {
-            settings.width = 960;             // Half resolution
-            settings.height = 540;
-            settings.samplesPerPixel = 10;    // Fewer samples
-            settings.maxBounces = 3;          // Fewer bounces
-        }
 
         Renderer renderer(settings);
 
         // Start timing
         auto startTime = std::chrono::high_resolution_clock::now();
 
-        // Render
-        std::cout << "\nStarting render with settings:" << std::endl;
-        std::cout << "Resolution: " << settings.width << "x" << settings.height << std::endl;
-        std::cout << "Samples per pixel: " << settings.samplesPerPixel << std::endl;
-        std::cout << "Max bounces: " << settings.maxBounces << std::endl;
-        std::cout << "Preview mode: " << (previewMode ? "Yes" : "No") << std::endl;
-
+        std::cout << "\nStarting render..." << std::endl;
         renderer.render(scene, camera);
 
         // End timing
@@ -60,9 +47,8 @@ int main() {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
 
         // Save image
-        std::string outputFile = previewMode ? "preview.png" : "final_render.png";
-        std::cout << "\nSaving image as '" << outputFile << "'..." << std::endl;
-        renderer.saveImage(outputFile);
+        std::cout << "\nSaving final render..." << std::endl;
+        renderer.saveImage("final_render.png");
 
         float renderTime = duration.count() / 1000.0f;
         std::cout << "\nRender completed in " << renderTime << " seconds" << std::endl;

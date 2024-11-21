@@ -13,11 +13,18 @@
 class Renderer {
 public:
     struct Settings {
-        int width = 800;
-        int height = 450;
-        int samplesPerPixel = 10;
-        int maxBounces = 3;
-        float gamma = 2.2f;
+        int width;
+        int height;
+        int samplesPerPixel;
+        int maxBounces;
+        float gamma;
+
+        Settings() 
+            : width(800)
+            , height(450)
+            , samplesPerPixel(10)
+            , maxBounces(3)
+            , gamma(2.2f) {}
     };
 
     Renderer(const Settings& settings = Settings())
@@ -25,10 +32,12 @@ public:
         , rng(std::random_device{}())
         , distribution(0.0f, 1.0f) {
         frameBuffer.resize(settings.width * settings.height, glm::vec3(0.0f));
+        std::cout << "Renderer initialized with " << settings.width << "x" << settings.height 
+                  << " resolution" << std::endl;
     }
 
     void render(const Scene& scene, const Camera& camera) {
-        std::cout << "Starting render with settings:" << std::endl;
+        std::cout << "\nStarting render with settings:" << std::endl;
         std::cout << "Resolution: " << settings.width << "x" << settings.height << std::endl;
         std::cout << "Samples per pixel: " << settings.samplesPerPixel << std::endl;
         std::cout << "Max bounces: " << settings.maxBounces << std::endl;
@@ -37,20 +46,13 @@ public:
         std::atomic<int> lastPercentage{0};
         int totalPixels = settings.width * settings.height;
 
+        std::cout << "Starting pixel rendering..." << std::endl;
+
         #pragma omp parallel for schedule(dynamic, 1)
         for (int y = 0; y < settings.height; ++y) {
             for (int x = 0; x < settings.width; ++x) {
                 glm::vec3 color(0.0f);
                 bool hasValidSample = false;
-                
-                // Debug message for pixel start
-                if (x == 0) {
-                    #pragma omp critical
-                    {
-                        std::cout << "Thread " << omp_get_thread_num() 
-                                << " starting row " << y << std::endl;
-                    }
-                }
                 
                 for (int s = 0; s < settings.samplesPerPixel; ++s) {
                     float u = (x + randomFloat()) / (settings.width - 1);
@@ -83,15 +85,15 @@ public:
                         lastPercentage.compare_exchange_strong(oldPercentage, percentage)) {
                         #pragma omp critical
                         {
-                            std::cout << "Rendering progress: " << percentage << "% (" 
-                                     << completed << "/" << totalPixels << " pixels)" << std::endl;
+                            std::cout << "\rRendering progress: " << percentage << "% (" 
+                                     << completed << "/" << totalPixels << " pixels)" << std::flush;
                         }
                     }
                 }
             }
         }
         
-        std::cout << "Rendering completed" << std::endl;
+        std::cout << "\nRendering completed" << std::endl;
     }
 
     void saveImage(const std::string& filename);
@@ -129,7 +131,6 @@ private:
             return glm::vec3(0.0f); // Background color (black for now)
         }
 
-        // Ensure normal is normalized
         isect.normal = glm::normalize(isect.normal);
 
         const auto& materials = scene.getMaterials();
@@ -151,7 +152,7 @@ private:
         }
 
         // Direct lighting calculation
-        glm::vec3 directLight = calculateDirectLighting(isect, scene);
+        glm::vec3 directLight = calculateDirectLighting(isect, scene, -ray.direction);
         if (!isValidColor(directLight, "Direct lighting")) {
             return glm::vec3(0.0f);
         }
@@ -243,26 +244,11 @@ private:
         return glm::vec3(0.0f);
     }
 
-    glm::vec3 calculateDirectLighting(const Intersection& isect, const Scene& scene) {
+    glm::vec3 calculateDirectLighting(const Intersection& isect, const Scene& scene, const glm::vec3& viewDir) {
         glm::vec3 totalLight(0.0f);
         const auto& lights = scene.getLights();
         const auto& materials = scene.getMaterials();
         const auto& material = materials[isect.materialId];
-
-        #pragma omp critical
-        {
-            std::cout << "\nDirect lighting debug:" << std::endl;
-            std::cout << "Intersection position: " << isect.position.x << ", " 
-                     << isect.position.y << ", " << isect.position.z << std::endl;
-            std::cout << "Intersection normal: " << isect.normal.x << ", " 
-                     << isect.normal.y << ", " << isect.normal.z << std::endl;
-            std::cout << "Normal length: " << glm::length(isect.normal) << std::endl;
-            std::cout << "Material ID: " << isect.materialId << std::endl;
-            std::cout << "Material type: " << static_cast<int>(material->type) << std::endl;
-            std::cout << "Material albedo: " << material->albedo.x << ", " 
-                     << material->albedo.y << ", " << material->albedo.z << std::endl;
-            std::cout << "Material roughness: " << material->roughness << std::endl;
-        }
 
         for (const auto& light : lights) {
             // Calculate light direction and distance
@@ -279,18 +265,6 @@ private:
 
             lightDir = glm::normalize(lightDir);
 
-            #pragma omp critical
-            {
-                std::cout << "Light debug:" << std::endl;
-                std::cout << "Light position: " << light.position.x << ", " 
-                         << light.position.y << ", " << light.position.z << std::endl;
-                std::cout << "Light direction: " << lightDir.x << ", " 
-                         << lightDir.y << ", " << lightDir.z << std::endl;
-                std::cout << "Light direction length: " << glm::length(lightDir) << std::endl;
-                std::cout << "Light distance: " << lightDistance << std::endl;
-                std::cout << "Light intensity: " << light.intensity << std::endl;
-            }
-
             // Check for shadows
             Ray shadowRay(isect.position + isect.normal * 0.001f, lightDir);
             shadowRay.tMax = lightDistance - 0.001f;
@@ -301,82 +275,23 @@ private:
                 float cosTheta = glm::max(glm::dot(isect.normal, lightDir), 0.0f);
                 float attenuation = light.intensity / (lightDistance * lightDistance);
 
-                #pragma omp critical
-                {
-                    std::cout << "Lighting calculation:" << std::endl;
-                    std::cout << "Cos theta: " << cosTheta << std::endl;
-                    std::cout << "Attenuation: " << attenuation << std::endl;
-                }
-                
                 glm::vec3 brdf;
                 if (material->type == MaterialType::DIFFUSE) {
                     brdf = material->albedo / glm::pi<float>();
-                    #pragma omp critical
-                    {
-                        std::cout << "Diffuse BRDF: " << brdf.x << ", " 
-                                 << brdf.y << ", " << brdf.z << std::endl;
-                    }
                 } else if (material->type == MaterialType::SPECULAR) {
-                    // Fix: Add vectors for half vector calculation
-                    glm::vec3 viewDir = -shadowRay.direction;
                     glm::vec3 halfVec = glm::normalize(lightDir + viewDir);
                     float NdotH = glm::max(glm::dot(isect.normal, halfVec), 0.0f);
-
-                    #pragma omp critical
-                    {
-                        std::cout << "Specular BRDF calculation:" << std::endl;
-                        std::cout << "View direction: " << viewDir.x << ", "
-                                 << viewDir.y << ", " << viewDir.z << std::endl;
-                        std::cout << "Half vector: " << halfVec.x << ", "
-                                 << halfVec.y << ", " << halfVec.z << std::endl;
-                        std::cout << "Half vector length: " << glm::length(halfVec) << std::endl;
-                        std::cout << "NdotH: " << NdotH << std::endl;
-                        std::cout << "Roughness: " << material->roughness << std::endl;
-                    }
-
                     float D = MaterialUtils::ggxDistribution(NdotH, material->roughness);
-                    
-                    #pragma omp critical
-                    {
-                        std::cout << "GGX Distribution: " << D << std::endl;
-                    }
-
                     brdf = material->albedo * D;
-                    
-                    #pragma omp critical
-                    {
-                        std::cout << "Final BRDF: " << brdf.x << ", "
-                                 << brdf.y << ", " << brdf.z << std::endl;
-                    }
                 }
                 
                 glm::vec3 contribution = light.color * brdf * cosTheta * attenuation;
                 
-                #pragma omp critical
-                {
-                    std::cout << "Light color: " << light.color.x << ", "
-                             << light.color.y << ", " << light.color.z << std::endl;
-                    std::cout << "Light contribution: " << contribution.x << ", " 
-                             << contribution.y << ", " << contribution.z << std::endl;
-                }
-
                 if (isValidColor(contribution, "Light contribution")) {
                     totalLight += contribution;
                 }
-            } else {
-                #pragma omp critical
-                {
-                    std::cout << "Point in shadow" << std::endl;
-                }
             }
         }
-
-        #pragma omp critical
-        {
-            std::cout << "Total light: " << totalLight.x << ", " 
-                     << totalLight.y << ", " << totalLight.z << std::endl;
-        }
-
         return totalLight;
     }
 

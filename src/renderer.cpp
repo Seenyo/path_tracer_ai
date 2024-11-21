@@ -17,4 +17,5 @@ void Renderer::saveImage(const std::string& filename) {
     }
     
     stbi_write_png(filename.c_str(), settings.width, settings.height, 3, pixels.data(), settings.width * 3);
+    std::cout << "Image saved as: " << filename << std::endl;
 }
