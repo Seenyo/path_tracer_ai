@@ -47,23 +47,23 @@ public:
         
         // Main key light (front right, slightly higher)
         lights.emplace_back(
-            glm::vec3(2.0f, 2.5f, 2.0f),     // Front right
+            glm::vec3(2.0f, 3.5f, 2.0f),     // Front right
             glm::vec3(1.0f, 0.95f, 0.8f),    // Warm white
-            10.0f                             // Higher intensity for key light
+            9.0f                             // Higher intensity for key light
         );
         
         // Fill light (front left, lower intensity)
         lights.emplace_back(
             glm::vec3(-1.5f, 2.0f, 1.5f),    // Front left
             glm::vec3(0.8f, 0.9f, 1.0f),     // Cool white
-            5.0f                             // Lower intensity for fill
+            2.0f                             // Lower intensity for fill
         );
         
         // Rim light (back)
         lights.emplace_back(
             glm::vec3(0.0f, 2.0f, -2.0f),    // Back
             glm::vec3(1.0f),                  // Pure white
-            8.0f                             // Medium intensity for rim
+            1.0f                             // Medium intensity for rim
         );
 
         // Ground bounce light (for softer shadows)

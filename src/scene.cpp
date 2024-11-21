@@ -53,11 +53,13 @@ bool Scene::loadFromObj(const std::string& objPath) {
 
     // Create materials
     std::cout << "Creating materials..." << std::endl;
+    
+    // Create highly metallic default material for Iron Man
     auto defaultMaterial = std::make_shared<Material>();
     defaultMaterial->type = MaterialType::SPECULAR;
-    defaultMaterial->albedo = glm::vec3(0.8f, 0.2f, 0.2f);
-    defaultMaterial->roughness = 0.2f;
-    defaultMaterial->metallic = 0.8f;
+    defaultMaterial->albedo = glm::vec3(0.9f, 0.2f, 0.2f);  // Brighter red
+    defaultMaterial->roughness = 0.1f;  // Very smooth
+    defaultMaterial->metallic = 1.0f;   // Fully metallic
     materials.push_back(defaultMaterial);
 
     // Create wall material
@@ -68,33 +70,54 @@ bool Scene::loadFromObj(const std::string& objPath) {
     wallMaterial->metallic = 0.0f;
     materials.push_back(wallMaterial);
 
-    // Process materials from MTL file
+    // Process materials from MTL file with enhanced metallic properties
     for (const auto& material : objMaterials) {
         auto mat = std::make_shared<Material>();
         
-        if (material.illum == 3) {
-            mat->type = MaterialType::DIELECTRIC;
-            mat->ior = material.ior > 0.0f ? material.ior : 1.5f;
-            mat->roughness = material.roughness > 0.0f ? material.roughness : 0.1f;
-        } else if (material.specular[0] > 0.5f || material.specular[1] > 0.5f || material.specular[2] > 0.5f) {
-            mat->type = MaterialType::SPECULAR;
-            mat->roughness = material.roughness > 0.0f ? material.roughness : 0.3f;
-            mat->metallic = material.metallic > 0.0f ? material.metallic : 0.8f;
+        // Make most materials metallic by default
+        mat->type = MaterialType::SPECULAR;
+        mat->metallic = 1.0f;  // Full metallic
+        mat->roughness = 0.1f; // Very smooth
+
+        // Special handling for specific materials
+        if (material.name.find("red") != std::string::npos) {
+            mat->albedo = glm::vec3(0.9f, 0.2f, 0.2f);  // Bright metallic red
+            mat->roughness = 0.1f;
+        } else if (material.name.find("gold") != std::string::npos) {
+            mat->albedo = glm::vec3(1.0f, 0.8f, 0.0f);  // Bright gold
+            mat->roughness = 0.05f;  // Extra smooth
+        } else if (material.name.find("silver") != std::string::npos || 
+                  material.name.find("darksilver") != std::string::npos) {
+            mat->albedo = glm::vec3(0.95f);  // Bright silver
+            mat->roughness = 0.05f;  // Extra smooth
+        } else if (material.name.find("black") != std::string::npos) {
+            mat->albedo = glm::vec3(0.02f);  // Very dark metallic
+            mat->roughness = 0.1f;
         } else {
-            mat->type = MaterialType::DIFFUSE;
-            mat->roughness = material.roughness > 0.0f ? material.roughness : 0.9f;
-            mat->metallic = 0.0f;
+            // For other materials, use their diffuse color but make them metallic
+            mat->albedo = glm::vec3(
+                material.diffuse[0],
+                material.diffuse[1],
+                material.diffuse[2]
+            );
+            // Enhance the colors
+            mat->albedo = glm::pow(mat->albedo, glm::vec3(0.8f)); // Make colors more vibrant
+            mat->albedo = glm::clamp(mat->albedo * 1.2f, 0.0f, 1.0f); // Brighten slightly
         }
 
-        mat->albedo = glm::vec3(material.diffuse[0], material.diffuse[1], material.diffuse[2]);
         materials.push_back(mat);
+        
+        std::cout << "Loaded material: " << material.name 
+                 << " (type=" << static_cast<int>(mat->type) 
+                 << ", roughness=" << mat->roughness 
+                 << ", metallic=" << mat->metallic << ")" << std::endl;
     }
 
     triangles.clear();
 
     // Add room walls
-    const float roomSize = 4.0f;
-    const float roomHeight = 3.0f;
+    const float roomSize = 8.0f;
+    const float roomHeight = 4.0f;
     const int wallMatId = 1;
 
     // Floor
@@ -212,7 +235,7 @@ bool Scene::loadFromObj(const std::string& objPath) {
                 // Apply transformations manually
                 vertex = (vertex - centerOffset) * scaleFactor;  // Center and scale
                 vertex.z = -vertex.z;  // Rotate 180 degrees around Y axis
-                vertex.y += 0.8f;  // Move up
+                vertex.y += 1.8f;  // Move up
 
                 vertices[v] = vertex;
 

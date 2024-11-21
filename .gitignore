@@ -1,4 +1,12 @@
 build/
 external/
+outputs/
 IronMan/
+
+include/_bvh.hpp
+include/_camera.hpp
+include/_renderer.hpp
+include/_triangle.hpp
+
+src/_renderer.cpp
 CMakeLists.txt

@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/constants.hpp>
 #include <random>
 #include "ray.hpp"
 
@@ -30,13 +31,13 @@ public:
         lowerLeftCorner = position - horizontal/2.0f - vertical/2.0f - focusDistance * w;
 
         lensRadius = aperture / 2.0f;
-
-        // Initialize random number generator
-        rng = std::mt19937(std::random_device{}());
-        distribution = std::uniform_real_distribution<float>(0.0f, 1.0f);
     }
 
     Ray getRay(float s, float t) const {
+        static std::random_device rd;
+        static std::mt19937 gen(rd());
+        static std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+
         if (aperture <= 0.0f) {
             // Pinhole camera model
             return Ray(
@@ -45,7 +46,12 @@ public:
             );
         } else {
             // Thin lens model for depth of field
-            glm::vec2 rd = lensRadius * randomInUnitDisk();
+            glm::vec2 rd;
+            do {
+                rd = glm::vec2(dist(gen), dist(gen));
+            } while (glm::dot(rd, rd) >= 1.0f);
+            rd *= lensRadius;
+
             glm::vec3 offset = u * rd.x + v * rd.y;
             return Ray(
                 position + offset,
@@ -63,17 +69,4 @@ private:
     float lensRadius;
     float aperture;
     float focusDistance;
-
-    // Thread-safe random number generation
-    mutable std::mt19937 rng;
-    mutable std::uniform_real_distribution<float> distribution;
-
-    // Helper function to generate random points in a unit disk for DOF
-    glm::vec2 randomInUnitDisk() const {
-        while (true) {
-            glm::vec2 p = 2.0f * glm::vec2(distribution(rng), distribution(rng)) - glm::vec2(1.0f);
-            if (glm::dot(p, p) < 1.0f)
-                return p;
-        }
-    }
 };

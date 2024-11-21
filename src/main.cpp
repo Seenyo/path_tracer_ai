@@ -16,11 +16,11 @@ int main() {
         std::cout << "\nSetting up camera..." << std::endl;
         // Setup camera with optimal position for scaled and rotated Ironman model
         Camera camera(
-            glm::vec3(0.0f, 1.8f, -3.5f),     // Position - diagonal view from front
-            glm::vec3(0.0f, 0.8f, 0.0f),     // Look at - centered on model's chest
+            glm::vec3(0.0f, 3.f, -1.f),     // Position - diagonal view from front
+            glm::vec3(0.0f, 2.75f, 0.0f),     // Look at - centered on model's chest
             glm::vec3(0.0f, -1.0f, 0.0f),     // Up vector
             45.0f,                            // FOV - narrower for less distortion
-            16.0f/9.0f,                       // Aspect ratio
+            21.0f/9.0f,                       // Aspect ratio
             1e-5f,                            // Aperture - small for depth of field
             3.5f                              // Focus distance - adjusted for room size
         );
@@ -28,10 +28,10 @@ int main() {
         std::cout << "Setting up renderer..." << std::endl;
         // Setup renderer with high quality settings
         Renderer::Settings settings;
-        settings.width = 1980;                // Full HD resolution
-        settings.height = 1080;
-        settings.samplesPerPixel = 10;       // More samples for better quality
-        settings.maxBounces = 4;              // More bounces for better reflections
+        settings.width = 3440;                // Full HD resolution
+        settings.height = 1440;
+        settings.samplesPerPixel = 500;       // More samples for better quality
+        settings.maxBounces = 16;              // More bounces for better reflections
         settings.gamma = 2.2f;                // Standard gamma correction
 
         Renderer renderer(settings);
@@ -48,7 +48,7 @@ int main() {
 
         // Save image
         std::cout << "\nSaving final render..." << std::endl;
-        renderer.saveImage("final_render.png");
+        renderer.saveImage("final_render6.png");
 
         float renderTime = duration.count() / 1000.0f;
         std::cout << "\nRender completed in " << renderTime << " seconds" << std::endl;

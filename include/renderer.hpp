@@ -7,6 +7,7 @@
 #include <atomic>
 #include <omp.h>
 #include <cmath>
+#include <glm/glm.hpp>
 #include "scene.hpp"
 #include "camera.hpp"
 
@@ -50,13 +51,17 @@ public:
 
         #pragma omp parallel for schedule(dynamic, 1)
         for (int y = 0; y < settings.height; ++y) {
+            // Create a thread-local random number generator
+            std::mt19937 localRng(std::random_device{}() + y);
+            std::uniform_real_distribution<float> localDist(0.0f, 1.0f);
+
             for (int x = 0; x < settings.width; ++x) {
                 glm::vec3 color(0.0f);
                 bool hasValidSample = false;
                 
                 for (int s = 0; s < settings.samplesPerPixel; ++s) {
-                    float u = (x + randomFloat()) / (settings.width - 1);
-                    float v = (y + randomFloat()) / (settings.height - 1);
+                    float u = (x + localDist(localRng)) / (settings.width - 1);
+                    float v = (y + localDist(localRng)) / (settings.height - 1);
                     
                     Ray ray = camera.getRay(u, v);
                     glm::vec3 sample = tracePath(ray, scene, 0);

@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include "ray.hpp"
 #include "intersection.hpp"
+#include "aabb.hpp"
 
 struct Triangle {
     glm::vec3 v0, v1, v2;        // Vertices
@@ -20,8 +21,9 @@ struct Triangle {
         , materialId(matId) {}
 
     bool intersect(const Ray& ray, Intersection& isect) const {
+        // [Same as before]
         const float EPSILON = 0.0000001f;
-        
+            
         // Compute edges
         glm::vec3 edge1 = v1 - v0;
         glm::vec3 edge2 = v2 - v0;
@@ -66,5 +68,11 @@ struct Triangle {
 
     glm::vec3 getCenter() const {
         return (v0 + v1 + v2) / 3.0f;
+    }
+
+    AABB getAABB() const {
+        glm::vec3 min = glm::min(glm::min(v0, v1), v2);
+        glm::vec3 max = glm::max(glm::max(v0, v1), v2);
+        return AABB(min, max);
     }
 };

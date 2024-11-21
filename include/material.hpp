@@ -13,7 +13,7 @@ struct Material {
     MaterialType type = MaterialType::DIFFUSE;
     glm::vec3 albedo = glm::vec3(0.8f);
     float roughness = 0.5f;
-    float metallic = 0.0f;
+    float metallic = 0.5f;
     float ior = 1.5f;  // Index of refraction (for dielectric materials)
 };
 
