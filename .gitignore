@@ -1,12 +1,53 @@
+# Build directories
 build/
-external/
+bin/
+lib/
+out/
+
+# IDE files
+.vs/
+.vscode/
+*.swp
+*.swo
+.idea/
+cmake-build-*/
+
+# Compiled files
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+*.o
+*.ptx
+
+# CUDA specific
+*.i
+*.ii
+*.gpu
+*.ptx
+*.cubin
+*.fatbin
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+*.cmake
+!CMakeLists.txt
+
+# Generated files
+*.generated.h
+*.generated.cpp
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Project specific
 outputs/
+external/
 IronMan/
-
-include/_bvh.hpp
-include/_camera.hpp
-include/_renderer.hpp
-include/_triangle.hpp
-
-src/_renderer.cpp
-CMakeLists.txt
