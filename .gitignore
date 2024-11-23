@@ -10,4 +10,6 @@ include/_triangle.hpp
 
 src/_renderer.cpp
 
+.idea/
+
 final_rendering.png
