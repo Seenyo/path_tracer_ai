@@ -6,7 +6,7 @@ struct Ray {
     glm::vec3 origin;
     glm::vec3 direction;
     float tMin = 0.001f;
-    mutable float tMax = std::numeric_limits<float>::infinity();  // Made mutable so it can be modified in const methods
+    mutable float tMax = std::numeric_limits<float>::infinity();
 
     Ray(const glm::vec3& o, const glm::vec3& d) 
         : origin(o), direction(glm::normalize(d)) {}
