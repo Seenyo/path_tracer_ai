@@ -9,4 +9,5 @@ include/_renderer.hpp
 include/_triangle.hpp
 
 src/_renderer.cpp
-CMakeLists.txt
+
+final_rendering.png

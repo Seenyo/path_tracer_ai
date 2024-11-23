@@ -30,7 +30,7 @@ int main() {
         Renderer::Settings settings;
         settings.width = 3440;                // Full HD resolution
         settings.height = 1440;
-        settings.samplesPerPixel = 500;       // More samples for better quality
+        settings.samplesPerPixel = 1;       // More samples for better quality
         settings.maxBounces = 16;              // More bounces for better reflections
         settings.gamma = 2.2f;                // Standard gamma correction
 
@@ -48,7 +48,7 @@ int main() {
 
         // Save image
         std::cout << "\nSaving final render..." << std::endl;
-        renderer.saveImage("final_render6.png");
+        renderer.saveImage("final_rendering.png");
 
         float renderTime = duration.count() / 1000.0f;
         std::cout << "\nRender completed in " << renderTime << " seconds" << std::endl;
