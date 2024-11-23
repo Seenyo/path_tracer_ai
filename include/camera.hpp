@@ -46,13 +46,13 @@ public:
             );
         } else {
             // Thin lens model for depth of field
-            glm::vec2 rd;
+            glm::vec2 ray_direction;
             do {
-                rd = glm::vec2(dist(gen), dist(gen));
-            } while (glm::dot(rd, rd) >= 1.0f);
-            rd *= lensRadius;
+                ray_direction = glm::vec2(dist(gen), dist(gen));
+            } while (glm::dot(ray_direction, ray_direction) >= 1.0f);
+            ray_direction *= lensRadius;
 
-            glm::vec3 offset = u * rd.x + v * rd.y;
+            glm::vec3 offset = u * ray_direction.x + v * ray_direction.y;
             return Ray(
                 position + offset,
                 glm::normalize(lowerLeftCorner + s*horizontal + t*vertical - (position + offset))

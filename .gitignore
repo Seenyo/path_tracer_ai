@@ -11,5 +11,6 @@ include/_triangle.hpp
 src/_renderer.cpp
 
 .idea/
+cmake-build-release/
 
 final_rendering.png
