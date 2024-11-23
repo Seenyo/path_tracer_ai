@@ -8,7 +8,7 @@ int main() {
     try {
         // Create scene and load model
         Scene scene;
-        if (!scene.loadFromObj("IronMan/IronMan.obj")) {
+        if (!scene.loadFromObj("../IronMan/IronMan.obj")) {
             std::cerr << "Failed to load model" << std::endl;
             return -1;
         }

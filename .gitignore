@@ -3,6 +3,9 @@ external/
 outputs/
 IronMan/
 
+cmake-build-release/
+cmake-build-debug/
+
 include/_bvh.hpp
 include/_camera.hpp
 include/_renderer.hpp
