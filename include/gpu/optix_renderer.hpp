@@ -83,6 +83,8 @@ private:
     std::vector<GPUMaterial> convertMaterials(const std::vector<std::shared_ptr<Material>> &materials);
     std::vector<GPULight> convertLights(const std::vector<Light> &lights);
 
+    CUdeviceptr createSBTRecord(OptixProgramGroup &programGroup);
+
     // Clean up resources
     void cleanup();
 };

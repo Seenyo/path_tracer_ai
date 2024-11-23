@@ -1,5 +1,3 @@
-// cuda_utils.cu
-
 #include "../../include/gpu/cuda_utils.hpp"
 
 #include <iostream>

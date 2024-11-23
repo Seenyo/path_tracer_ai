@@ -1,6 +1,6 @@
 #include <optix.h>
 #include "gpu/optix_types.hpp"
-#include "gpu/cuda_utils.hpp"
+#include "gpu/cuda_utils_device.hpp"
 
 // Constants
 #define PI 3.14159265358979323846f

@@ -1,26 +1,41 @@
-#pragma once
+// cuda_utils.inl
+#ifndef CUDA_UTILS_INL
+#define CUDA_UTILS_INL
 
+#include "../../include/gpu/cuda_utils.hpp"
+
+#ifndef __CUDA_ARCH__ // Host code only
+
+// Constructor
 template <typename T>
 CUDABuffer<T>::CUDABuffer()
-    : d_ptr(nullptr), alloc_size(0) {}
+    : d_ptr(nullptr), size_bytes(0) {}
 
+// Destructor
 template <typename T>
 CUDABuffer<T>::~CUDABuffer()
 {
-    free();
-}
-
-template <typename T>
-void CUDABuffer<T>::alloc(size_t size)
-{
-    if (d_ptr)
+    try
     {
         free();
     }
-    alloc_size = size * sizeof(T);
-    CUDA_CHECK(cudaMalloc(&d_ptr, alloc_size));
+    catch (const std::exception &e)
+    {
+        // Handle exceptions in destructor gracefully
+        std::cerr << "Exception in CUDABuffer destructor: " << e.what() << std::endl;
+    }
 }
 
+// Allocate memory for 'count' elements
+template <typename T>
+void CUDABuffer<T>::alloc(size_t count)
+{
+    free(); // Free existing memory if allocated
+    size_bytes = count * sizeof(T);
+    CUDA_CHECK(cudaMalloc(&d_ptr, size_bytes));
+}
+
+// Allocate and upload data from host
 template <typename T>
 void CUDABuffer<T>::alloc_and_upload(const std::vector<T> &data)
 {
@@ -28,26 +43,43 @@ void CUDABuffer<T>::alloc_and_upload(const std::vector<T> &data)
     upload(data.data(), data.size());
 }
 
+// Upload data from host
 template <typename T>
-void CUDABuffer<T>::upload(const T *data, size_t size)
+void CUDABuffer<T>::upload(const T *h_ptr, size_t count)
 {
-    if (size * sizeof(T) > alloc_size)
+    if (!d_ptr)
     {
-        throw std::runtime_error("CUDABuffer upload size exceeds allocated size");
+        throw std::runtime_error("CUDABuffer upload called on unallocated buffer.");
     }
-    CUDA_CHECK(cudaMemcpy(d_ptr, data, size * sizeof(T), cudaMemcpyHostToDevice));
+
+    size_t required_size = count * sizeof(T);
+    if (size_bytes < required_size)
+    {
+        throw std::runtime_error("CUDABuffer upload size exceeds allocated size.");
+    }
+
+    CUDA_CHECK(cudaMemcpy(d_ptr, h_ptr, required_size, cudaMemcpyHostToDevice));
 }
 
+// Download data to host
 template <typename T>
-void CUDABuffer<T>::download(T *data, size_t size)
+void CUDABuffer<T>::download(T *h_ptr, size_t count) const
 {
-    if (size * sizeof(T) > alloc_size)
+    if (!d_ptr)
     {
-        throw std::runtime_error("CUDABuffer download size exceeds allocated size");
+        throw std::runtime_error("CUDABuffer download called on unallocated buffer.");
     }
-    CUDA_CHECK(cudaMemcpy(data, d_ptr, size * sizeof(T), cudaMemcpyDeviceToHost));
+
+    size_t required_size = count * sizeof(T);
+    if (size_bytes < required_size)
+    {
+        throw std::runtime_error("CUDABuffer download size exceeds allocated size.");
+    }
+
+    CUDA_CHECK(cudaMemcpy(h_ptr, d_ptr, required_size, cudaMemcpyDeviceToHost));
 }
 
+// Free allocated memory
 template <typename T>
 void CUDABuffer<T>::free()
 {
@@ -55,18 +87,30 @@ void CUDABuffer<T>::free()
     {
         CUDA_CHECK(cudaFree(d_ptr));
         d_ptr = nullptr;
-        alloc_size = 0;
+        size_bytes = 0;
     }
 }
 
+// Get device pointer
 template <typename T>
-T *CUDABuffer<T>::get() const
+T *CUDABuffer<T>::get()
 {
     return d_ptr;
 }
 
 template <typename T>
-T *CUDABuffer<T>::d_pointer() const
+const T *CUDABuffer<T>::get() const
 {
     return d_ptr;
 }
+
+// Get size in bytes
+template <typename T>
+size_t CUDABuffer<T>::sizeInBytes() const
+{
+    return size_bytes;
+}
+
+#endif // __CUDA_ARCH__
+
+#endif // CUDA_UTILS_INL
