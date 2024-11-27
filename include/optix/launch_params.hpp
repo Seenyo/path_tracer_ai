@@ -2,6 +2,7 @@
 
 #include <cuda_runtime.h>
 #include <optix.h>
+#include "../math/vec_math.hpp"
 
 // Ensure proper alignment for the launch parameters
 #if defined(__CUDACC__) || defined(__CUDA_ARCH__)
@@ -107,10 +108,9 @@ struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) MissSbtRecord {
 
 struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) HitGroupSbtRecord {
     ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
-    struct {
-        Material material;
-    } data;
+    Material material;
 };
+
 
 // Ray types
 enum RayType {

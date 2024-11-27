@@ -4,13 +4,9 @@
 
 #include <cuda_runtime.h>
 
-// OptiX 7 dependencies (order matters)
-#define OPTIX_API_IMPORT
+// OptiX 7 includes
 #include <optix.h>
-#include <optix_function_table.h>
 #include <optix_stubs.h>
-#include <optix_types.h>
-#include <optix_function_table_definition.h>
 
 #include <iostream>
 #include <sstream>
@@ -18,37 +14,37 @@
 
 // Error check/report helper for CUDA
 #define CUDA_CHECK(call)                                                          \
-    do {                                                                         \
-        cudaError_t error = call;                                               \
-        if (error != cudaSuccess) {                                             \
-            std::stringstream ss;                                               \
-            ss << "CUDA call (" << #call << " ) failed with error: '"           \
-               << cudaGetErrorString(error) << "' (" __FILE__ << ":"            \
-               << __LINE__ << ")\n";                                            \
-            std::cerr << ss.str();                                             \
-            exit(1);                                                            \
-        }                                                                       \
+    do {                                                                          \
+        cudaError_t error = call;                                                 \
+        if (error != cudaSuccess) {                                               \
+            std::stringstream ss;                                                 \
+            ss << "CUDA call (" << #call << " ) failed with error: '"             \
+               << cudaGetErrorString(error) << "' (" __FILE__ << ":"              \
+               << __LINE__ << ")\n";                                              \
+            std::cerr << ss.str();                                                \
+            exit(1);                                                              \
+        }                                                                         \
     } while (0)
 
 // Error check/report helper for OptiX
-#define OPTIX_CHECK(call)                                                        \
-    do {                                                                         \
-        OptixResult res = call;                                                 \
-        if (res != OPTIX_SUCCESS) {                                            \
-            std::stringstream ss;                                               \
-            ss << "OptiX call (" << #call << " ) failed with error: '"         \
-               << optixGetErrorName(res) << "' (" __FILE__ << ":"              \
-               << __LINE__ << ")\n";                                            \
-            std::cerr << ss.str();                                             \
-            exit(1);                                                            \
-        }                                                                       \
+#define OPTIX_CHECK(call)                                                         \
+    do {                                                                          \
+        OptixResult res = call;                                                   \
+        if (res != OPTIX_SUCCESS) {                                               \
+            std::stringstream ss;                                                 \
+            ss << "OptiX call (" << #call << " ) failed with error: '"            \
+               << optixGetErrorName(res) << "' (" __FILE__ << ":"                 \
+               << __LINE__ << ")\n";                                              \
+            std::cerr << ss.str();                                                \
+            exit(1);                                                              \
+        }                                                                         \
     } while (0)
 
 // Callback function for OptiX errors
 static void context_log_cb(unsigned int level,
-                          const char* tag,
-                          const char* message,
-                          void* /*cbdata */) {
+                           const char* tag,
+                           const char* message,
+                           void* /*cbdata */) {
     std::cerr << "[" << level << "][" << tag << "]: " << message << std::endl;
 }
 
@@ -76,11 +72,11 @@ int main() {
 
         // Create context
         OptixDeviceContext context = nullptr;
-        CUcontext cuCtx = 0;  // zero means take the current context
+        CUcontext cuCtx = 0;  // Zero means take the current context
         OptixDeviceContextOptions options = {};
         options.logCallbackFunction = &context_log_cb;
         options.logCallbackLevel = 4;  // Fatal = 1, Error = 2, Warning = 3, Print = 4
-        
+
         OPTIX_CHECK(optixDeviceContextCreate(cuCtx, &options, &context));
 
         // Configure context

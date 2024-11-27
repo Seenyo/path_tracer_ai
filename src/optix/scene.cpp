@@ -127,10 +127,57 @@ void OptixScene::buildAcceleration(OptixDeviceContext context) {
     build_input.triangleArray.numVertices = static_cast<uint32_t>(vertices.size());
     build_input.triangleArray.vertexBuffers = &d_vertices;
 
-    // Single SBT record for all triangles
-    uint32_t triangle_flags[] = { OPTIX_GEOMETRY_FLAG_NONE };
-    build_input.triangleArray.flags = triangle_flags;
-    build_input.triangleArray.numSbtRecords = 1;
+    // Create index buffer
+    uint32_t num_triangles = static_cast<uint32_t>(vertices.size() / 3);
+    std::vector<uint32_t> indices;
+    indices.reserve(num_triangles * 3);
+    for (uint32_t i = 0; i < num_triangles * 3; ++i) {
+        indices.push_back(i);
+    }
+
+    // Upload index buffer to device
+    CUdeviceptr d_indices;
+    size_t index_buffer_size = indices.size() * sizeof(uint32_t);
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_indices), index_buffer_size));
+    CUDA_CHECK(cudaMemcpy(
+            reinterpret_cast<void*>(d_indices),
+            indices.data(),
+            index_buffer_size,
+            cudaMemcpyHostToDevice
+    ));
+
+    // Set index buffer in build input
+    build_input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+    build_input.triangleArray.indexStrideInBytes = sizeof(uint32_t) * 3;
+    build_input.triangleArray.numIndexTriplets = num_triangles;
+    build_input.triangleArray.indexBuffer = d_indices;
+
+    // Prepare SBT index buffer
+    std::vector<uint32_t> sbt_indices(num_triangles);
+    for (uint32_t i = 0; i < num_triangles; ++i) {
+        sbt_indices[i] = i; // Each triangle uses its own SBT record
+    }
+
+    // Upload SBT index buffer to device
+    CUdeviceptr d_sbt_index_buffer;
+    size_t sbt_index_buffer_size = sbt_indices.size() * sizeof(uint32_t);
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_sbt_index_buffer), sbt_index_buffer_size));
+    CUDA_CHECK(cudaMemcpy(
+            reinterpret_cast<void*>(d_sbt_index_buffer),
+            sbt_indices.data(),
+            sbt_index_buffer_size,
+            cudaMemcpyHostToDevice
+    ));
+
+    // Create triangle flags array
+    std::vector<uint32_t> triangle_flags(num_triangles, OPTIX_GEOMETRY_FLAG_NONE);
+
+    // Build input settings
+    build_input.triangleArray.flags = triangle_flags.data(); // Host pointer
+    build_input.triangleArray.numSbtRecords = num_triangles;
+    build_input.triangleArray.sbtIndexOffsetBuffer = d_sbt_index_buffer;
+    build_input.triangleArray.sbtIndexOffsetSizeInBytes = sizeof(uint32_t);
+    build_input.triangleArray.sbtIndexOffsetStrideInBytes = sizeof(uint32_t);
 
     // Build options
     OptixAccelBuildOptions accel_options = {};
@@ -140,41 +187,41 @@ void OptixScene::buildAcceleration(OptixDeviceContext context) {
     // Query build sizes
     OptixAccelBufferSizes gas_buffer_sizes;
     OPTIX_CHECK(optixAccelComputeMemoryUsage(
-        context,
-        &accel_options,
-        &build_input,
-        1,  // num build inputs
-        &gas_buffer_sizes
+            context,
+            &accel_options,
+            &build_input,
+            1,  // num build inputs
+            &gas_buffer_sizes
     ));
 
     // Allocate buffers
-    void* d_temp_buffer_ptr;
-    CUDA_CHECK(cudaMalloc(&d_temp_buffer_ptr, gas_buffer_sizes.tempSizeInBytes));
-    CUdeviceptr d_temp_buffer = reinterpret_cast<CUdeviceptr>(d_temp_buffer_ptr);
-
-    void* d_gas_output_buffer_ptr;
-    CUDA_CHECK(cudaMalloc(&d_gas_output_buffer_ptr, gas_buffer_sizes.outputSizeInBytes));
-    d_gas_output_buffer = reinterpret_cast<CUdeviceptr>(d_gas_output_buffer_ptr);
+    CUdeviceptr d_temp_buffer;
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_temp_buffer), gas_buffer_sizes.tempSizeInBytes));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_gas_output_buffer), gas_buffer_sizes.outputSizeInBytes));
 
     // Build acceleration structure
     OPTIX_CHECK(optixAccelBuild(
-        context,
-        0,                  // CUDA stream
-        &accel_options,
-        &build_input,
-        1,                  // num build inputs
-        d_temp_buffer,
-        gas_buffer_sizes.tempSizeInBytes,
-        d_gas_output_buffer,
-        gas_buffer_sizes.outputSizeInBytes,
-        &gas_handle,
-        nullptr,            // emitted property list
-        0                   // num emitted properties
+            context,
+            0,                  // CUDA stream
+            &accel_options,
+            &build_input,
+            1,                  // num build inputs
+            d_temp_buffer,
+            gas_buffer_sizes.tempSizeInBytes,
+            d_gas_output_buffer,
+            gas_buffer_sizes.outputSizeInBytes,
+            &gas_handle,
+            nullptr,            // emitted property list
+            0                   // num emitted properties
     ));
 
     // Clean up temp buffer
     CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_temp_buffer)));
+    CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_indices)));
+    CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_sbt_index_buffer)));
 }
+
+
 
 OptixTraversableHandle OptixScene::getTraversableHandle() const {
     return gas_handle;
@@ -203,11 +250,15 @@ void OptixScene::cleanup() {
         CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_lights)));
     if (d_gas_output_buffer)
         CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_gas_output_buffer)));
-    
+    if (d_sbt_index_buffer)
+        CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_sbt_index_buffer)));
+
     d_vertices = 0;
     d_normals = 0;
     d_materials = 0;
     d_lights = 0;
     d_gas_output_buffer = 0;
+    d_sbt_index_buffer = 0;
     gas_handle = 0;
 }
+

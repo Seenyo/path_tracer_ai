@@ -1,12 +1,10 @@
 #include <iostream>
-#include <fstream>
 #include <vector>
 #include <cuda_runtime.h>
 #include <cmath>
 #include <random>
 #include "../include/optix/pipeline.hpp"
 #include "../include/optix/scene.hpp"
-#include "../include/math/vec_math.hpp"
 #include "../include/utils/image_utils.hpp"
 
 // Error check/report helper for CUDA
@@ -187,7 +185,7 @@ int main() {
         std::cout << "Creating and initializing OptiX pipeline..." << std::endl;
         // Create and initialize OptiX pipeline
         PathTracerPipeline pipeline;
-        pipeline.initialize();
+        pipeline.initialize(materials);
 
         std::cout << "Building acceleration structure..." << std::endl;
         // Build acceleration structure
@@ -217,16 +215,22 @@ int main() {
         params.frame.color_buffer = d_color_buffer;
         params.frame.width = width;
         params.frame.height = height;
-        params.frame.samples_per_pixel = 1;
-        params.frame.max_bounces = 5;
+        params.frame.samples_per_pixel = 1;  // For debugging
+        params.frame.max_bounces = 10;       // Increased from 5 to 10
 
-        // Camera setup - position it to view the cube
+        // Debug: Print launch parameters
+        std::cout << "Launch Parameters:" << std::endl;
+        std::cout << "  Image Size: " << width << "x" << height << std::endl;
+        std::cout << "  Samples Per Pixel: " << params.frame.samples_per_pixel << std::endl;
+        std::cout << "  Max Bounces: " << params.frame.max_bounces << std::endl;
+
+        // Camera setup
         params.camera.position = make_float3(4.0f, 3.0f, -4.0f);
         params.camera.direction = normalize(make_float3(-1.0f, -0.5f, 1.0f));
         params.camera.up = make_float3(0.0f, 1.0f, 0.0f);
         params.camera.fov = make_float2(
-            45.0f * static_cast<float>(M_PI) / 180.0f,  // horizontal FOV
-            35.0f * static_cast<float>(M_PI) / 180.0f   // vertical FOV
+                45.0f * static_cast<float>(M_PI) / 180.0f,  // horizontal FOV
+                35.0f * static_cast<float>(M_PI) / 180.0f   // vertical FOV
         );
 
         // Background color
@@ -234,7 +238,6 @@ int main() {
 
         // Geometry data
         params.geometry.normals = reinterpret_cast<float3*>(scene.getNormalsBuffer());
-        params.geometry.materials = reinterpret_cast<Material*>(scene.getMaterialsBuffer());
         params.geometry.lights = reinterpret_cast<Light*>(scene.getLightsBuffer());
         params.geometry.num_lights = static_cast<unsigned int>(lights.size());
 
@@ -250,21 +253,16 @@ int main() {
         for (int frame = 0; frame < num_frames; ++frame) {
             params.frame_number = frame;
             pipeline.render(params);
-
-            // Print progress
-            if ((frame + 1) % 10 == 0) {
-                std::cout << "Completed " << (frame + 1) << " samples" << std::endl;
-            }
         }
 
         std::cout << "Reading back result..." << std::endl;
         // Allocate host memory for output
         std::vector<float3> color_buffer(width * height);
         CUDA_CHECK(cudaMemcpy(
-            color_buffer.data(),
-            d_color_buffer,
-            buffer_size,
-            cudaMemcpyDeviceToHost
+                color_buffer.data(),
+                d_color_buffer,
+                buffer_size,
+                cudaMemcpyDeviceToHost
         ));
 
         // Find maximum value for auto-exposure

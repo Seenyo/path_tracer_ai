@@ -34,6 +34,9 @@ private:
     CUdeviceptr d_normals;
     CUdeviceptr d_materials;
     CUdeviceptr d_lights;
-    CUdeviceptr d_gas_output_buffer;
     OptixTraversableHandle gas_handle;
+
+    CUdeviceptr d_sbt_index_buffer{0};
+    CUdeviceptr d_temp_buffer{0};
+    CUdeviceptr d_gas_output_buffer{0};
 };

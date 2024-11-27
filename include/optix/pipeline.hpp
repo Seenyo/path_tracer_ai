@@ -13,7 +13,7 @@ public:
     PathTracerPipeline();
     ~PathTracerPipeline();
 
-    void initialize();
+    void initialize(const std::vector<Material>& materials);
     void render(const LaunchParams& params);
     OptixDeviceContext getContext() const;
 
@@ -23,7 +23,7 @@ private:
 
 class OptixPipelineImpl {
 public:
-    OptixPipelineImpl();
+    OptixPipelineImpl(const std::vector<Material>& scene_materials);
     ~OptixPipelineImpl();
 
     void initialize();
@@ -62,4 +62,10 @@ private:
 
     // PTX code storage
     std::vector<char> ptx_code;
+
+    // Materials
+    std::vector<Material> materials;
+
+    // Shader Binding Table
+    OptixShaderBindingTable sbt = {};
 };
