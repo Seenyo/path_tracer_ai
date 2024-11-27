@@ -221,17 +221,56 @@ void OptixPipelineImpl::createModule() {
     std::cout << "OptiX module created successfully." << std::endl;
 }
 
+// ... Other includes and code ...
+
 void OptixPipelineImpl::createProgramGroups() {
+    // Program group for ray generation
+    OptixProgramGroupDesc raygen_prog_group_desc = {};
+    raygen_prog_group_desc.kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
+    raygen_prog_group_desc.raygen.module = module;
+    raygen_prog_group_desc.raygen.entryFunctionName = "__raygen__pinhole";
+
+    // Program groups for miss shaders
+    OptixProgramGroupDesc miss_prog_group_descs[2] = {};
+
+    // Radiance miss program
+    miss_prog_group_descs[0].kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+    miss_prog_group_descs[0].miss.module = module;
+    miss_prog_group_descs[0].miss.entryFunctionName = "__miss__radiance";
+
+    // Shadow miss program
+    miss_prog_group_descs[1].kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+    miss_prog_group_descs[1].miss.module = module;
+    miss_prog_group_descs[1].miss.entryFunctionName = "__miss__shadow";
+
+    // Program groups for hit groups
+    OptixProgramGroupDesc hitgroup_prog_group_descs[2] = {};
+
+    // Radiance hit group
+    hitgroup_prog_group_descs[0].kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+    hitgroup_prog_group_descs[0].hitgroup.moduleCH = module;
+    hitgroup_prog_group_descs[0].hitgroup.entryFunctionNameCH = "__closesthit__radiance";
+    hitgroup_prog_group_descs[0].hitgroup.moduleAH = nullptr;
+    hitgroup_prog_group_descs[0].hitgroup.entryFunctionNameAH = nullptr;
+    hitgroup_prog_group_descs[0].hitgroup.moduleIS = nullptr;
+    hitgroup_prog_group_descs[0].hitgroup.entryFunctionNameIS = nullptr;
+
+    // Shadow hit group (no closest hit program)
+    hitgroup_prog_group_descs[1].kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+    hitgroup_prog_group_descs[1].hitgroup.moduleCH = module;
+    hitgroup_prog_group_descs[1].hitgroup.entryFunctionNameCH = "__closesthit__shadow";
+    hitgroup_prog_group_descs[1].hitgroup.moduleAH = nullptr;
+    hitgroup_prog_group_descs[1].hitgroup.entryFunctionNameAH = nullptr;
+    hitgroup_prog_group_descs[1].hitgroup.moduleIS = nullptr;
+    hitgroup_prog_group_descs[1].hitgroup.entryFunctionNameIS = nullptr;
+
+    // Program group options
     OptixProgramGroupOptions program_group_options = {};
 
     char log[2048];
     size_t sizeof_log = sizeof(log);
 
-    // Ray generation program group
-    OptixProgramGroupDesc raygen_prog_group_desc = {};
-    raygen_prog_group_desc.kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
-    raygen_prog_group_desc.raygen.module = module;
-    raygen_prog_group_desc.raygen.entryFunctionName = "__raygen__pinhole";
+    // Create raygen program group
     OPTIX_CHECK(optixProgramGroupCreate(
             context,
             &raygen_prog_group_desc,
@@ -242,17 +281,10 @@ void OptixPipelineImpl::createProgramGroups() {
             &raygen_prog_group
     ));
 
-    // Miss program groups
-    OptixProgramGroupDesc miss_prog_group_desc[2] = {};
-    miss_prog_group_desc[0].kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
-    miss_prog_group_desc[0].miss.module = module;
-    miss_prog_group_desc[0].miss.entryFunctionName = "__miss__radiance";
-    miss_prog_group_desc[1].kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
-    miss_prog_group_desc[1].miss.module = module;
-    miss_prog_group_desc[1].miss.entryFunctionName = "__miss__shadow";
+    // Create miss program groups
     OPTIX_CHECK(optixProgramGroupCreate(
             context,
-            miss_prog_group_desc,
+            miss_prog_group_descs,
             2,
             &program_group_options,
             log,
@@ -260,33 +292,70 @@ void OptixPipelineImpl::createProgramGroups() {
             miss_prog_groups
     ));
 
-    // Hit group program groups
-    OptixProgramGroupDesc hitgroup_prog_group_desc[2] = {};
-    // For radiance rays (ray type 0)
-    hitgroup_prog_group_desc[0].kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
-    hitgroup_prog_group_desc[0].hitgroup.moduleCH = module;
-    hitgroup_prog_group_desc[0].hitgroup.entryFunctionNameCH = "__closesthit__radiance";
-    hitgroup_prog_group_desc[0].hitgroup.moduleAH = nullptr;
-    hitgroup_prog_group_desc[0].hitgroup.entryFunctionNameAH = nullptr;
-
-    // For shadow rays (ray type 1), we don't have a closest-hit program
-    hitgroup_prog_group_desc[1].kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
-    hitgroup_prog_group_desc[1].hitgroup.moduleCH = nullptr;
-    hitgroup_prog_group_desc[1].hitgroup.entryFunctionNameCH = nullptr;
-    hitgroup_prog_group_desc[1].hitgroup.moduleAH = nullptr;
-    hitgroup_prog_group_desc[1].hitgroup.entryFunctionNameAH = nullptr;
-
+    // Create hitgroup program groups
     OPTIX_CHECK(optixProgramGroupCreate(
             context,
-            hitgroup_prog_group_desc,
+            hitgroup_prog_group_descs,
             2,
             &program_group_options,
             log,
             &sizeof_log,
             hitgroup_prog_groups
     ));
+}
 
-    std::cout << "Program groups created successfully" << std::endl;
+void OptixPipelineImpl::createSBT() {
+    // Create raygen records
+    RayGenSbtRecord raygen_record = {};
+    OPTIX_CHECK(optixSbtRecordPackHeader(raygen_prog_group, &raygen_record));
+    // No additional data for raygen record
+
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_raygen_record), sizeof(RayGenSbtRecord)));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_raygen_record), &raygen_record, sizeof(RayGenSbtRecord), cudaMemcpyHostToDevice));
+
+    // Create miss records
+    MissSbtRecord miss_records[2] = {};
+    // Radiance miss record
+    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[0], &miss_records[0]));
+    miss_records[0].data.bg_color = make_float3(0.0f, 0.0f, 0.0f); // You can set your desired background color here
+
+    // Shadow miss record
+    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[1], &miss_records[1]));
+    // No additional data for shadow miss record
+
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_miss_record), sizeof(MissSbtRecord) * 2));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_miss_record), miss_records, sizeof(MissSbtRecord) * 2, cudaMemcpyHostToDevice));
+
+    // Create hitgroup records
+    size_t num_materials = materials.size();
+    std::vector<HitGroupSbtRecord> hitgroup_records(num_materials * RAY_TYPE_COUNT);
+
+    for (size_t i = 0; i < num_materials; ++i) {
+        // Radiance hit group record
+        HitGroupSbtRecord& radiance_record = hitgroup_records[i * RAY_TYPE_COUNT + RAY_TYPE_RADIANCE];
+        OPTIX_CHECK(optixSbtRecordPackHeader(hitgroup_prog_groups[RAY_TYPE_RADIANCE], &radiance_record));
+        radiance_record.material = materials[i];
+
+        // Shadow hit group record
+        HitGroupSbtRecord& shadow_record = hitgroup_records[i * RAY_TYPE_COUNT + RAY_TYPE_SHADOW];
+        OPTIX_CHECK(optixSbtRecordPackHeader(hitgroup_prog_groups[RAY_TYPE_SHADOW], &shadow_record));
+        // No material data needed for shadow rays
+    }
+
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_hitgroup_record), sizeof(HitGroupSbtRecord) * hitgroup_records.size()));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_hitgroup_record), hitgroup_records.data(), sizeof(HitGroupSbtRecord) * hitgroup_records.size(), cudaMemcpyHostToDevice));
+
+    // Initialize SBT
+    sbt = {};
+    sbt.raygenRecord = d_raygen_record;
+
+    sbt.missRecordBase = d_miss_record;
+    sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
+    sbt.missRecordCount = 2;
+
+    sbt.hitgroupRecordBase = d_hitgroup_record;
+    sbt.hitgroupRecordStrideInBytes = sizeof(HitGroupSbtRecord);
+    sbt.hitgroupRecordCount = static_cast<unsigned int>(hitgroup_records.size());
 }
 
 void OptixPipelineImpl::createPipeline() {
@@ -330,53 +399,53 @@ void OptixPipelineImpl::createPipeline() {
     std::cout << "Pipeline created successfully" << std::endl;
 }
 
-void OptixPipelineImpl::createSBT() {
-    // Create raygen records
-    RayGenSbtRecord raygen_record = {};
-    OPTIX_CHECK(optixSbtRecordPackHeader(raygen_prog_group, &raygen_record));
-    // No additional data for raygen record
-
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_raygen_record), sizeof(RayGenSbtRecord)));
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_raygen_record), &raygen_record, sizeof(RayGenSbtRecord), cudaMemcpyHostToDevice));
-
-    // Create miss records
-    MissSbtRecord miss_records[2] = {};
-    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[0], &miss_records[0]));
-    // Set miss data if needed (e.g., background color)
-
-    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[1], &miss_records[1]));
-    // Set miss data for shadow rays if needed
-
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_miss_record), sizeof(MissSbtRecord) * 2));
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_miss_record), miss_records, sizeof(MissSbtRecord) * 2, cudaMemcpyHostToDevice));
-
-    // Create hitgroup records
-    size_t num_materials = materials.size();
-    std::vector<HitGroupSbtRecord> hitgroup_records(num_materials);
-
-    for (size_t i = 0; i < num_materials; ++i) {
-        HitGroupSbtRecord& record = hitgroup_records[i];
-        // Use the appropriate program group
-        OPTIX_CHECK(optixSbtRecordPackHeader(hitgroup_prog_groups[0], &record));
-        // Assign the material to the SBT record
-        record.material = materials[i];
-    }
-
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_hitgroup_record), sizeof(HitGroupSbtRecord) * num_materials));
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_hitgroup_record), hitgroup_records.data(), sizeof(HitGroupSbtRecord) * num_materials, cudaMemcpyHostToDevice));
-
-    // Initialize SBT
-    sbt = {};
-    sbt.raygenRecord = d_raygen_record;
-    sbt.missRecordBase = d_miss_record;
-    sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
-    sbt.missRecordCount = 2;
-    sbt.hitgroupRecordBase = d_hitgroup_record;
-    sbt.hitgroupRecordStrideInBytes = sizeof(HitGroupSbtRecord);
-    sbt.hitgroupRecordCount = static_cast<unsigned int>(num_materials);
-
-    std::cout << "Shader Binding Table created successfully" << std::endl;
-}
+//void OptixPipelineImpl::createSBT() {
+//    // Create raygen records
+//    RayGenSbtRecord raygen_record = {};
+//    OPTIX_CHECK(optixSbtRecordPackHeader(raygen_prog_group, &raygen_record));
+//    // No additional data for raygen record
+//
+//    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_raygen_record), sizeof(RayGenSbtRecord)));
+//    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_raygen_record), &raygen_record, sizeof(RayGenSbtRecord), cudaMemcpyHostToDevice));
+//
+//    // Create miss records
+//    MissSbtRecord miss_records[2] = {};
+//    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[0], &miss_records[0]));
+//    // Set miss data if needed (e.g., background color)
+//
+//    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[1], &miss_records[1]));
+//    // Set miss data for shadow rays if needed
+//
+//    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_miss_record), sizeof(MissSbtRecord) * 2));
+//    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_miss_record), miss_records, sizeof(MissSbtRecord) * 2, cudaMemcpyHostToDevice));
+//
+//    // Create hitgroup records
+//    size_t num_materials = materials.size();
+//    std::vector<HitGroupSbtRecord> hitgroup_records(num_materials);
+//
+//    for (size_t i = 0; i < num_materials; ++i) {
+//        HitGroupSbtRecord& record = hitgroup_records[i];
+//        // Use the appropriate program group
+//        OPTIX_CHECK(optixSbtRecordPackHeader(hitgroup_prog_groups[0], &record));
+//        // Assign the material to the SBT record
+//        record.material = materials[i];
+//    }
+//
+//    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_hitgroup_record), sizeof(HitGroupSbtRecord) * num_materials));
+//    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_hitgroup_record), hitgroup_records.data(), sizeof(HitGroupSbtRecord) * num_materials, cudaMemcpyHostToDevice));
+//
+//    // Initialize SBT
+//    sbt = {};
+//    sbt.raygenRecord = d_raygen_record;
+//    sbt.missRecordBase = d_miss_record;
+//    sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
+//    sbt.missRecordCount = 2;
+//    sbt.hitgroupRecordBase = d_hitgroup_record;
+//    sbt.hitgroupRecordStrideInBytes = sizeof(HitGroupSbtRecord);
+//    sbt.hitgroupRecordCount = static_cast<unsigned int>(num_materials);
+//
+//    std::cout << "Shader Binding Table created successfully" << std::endl;
+//}
 
 void OptixPipelineImpl::render(const LaunchParams& params) {
     std::cout << "Starting render..." << std::endl;

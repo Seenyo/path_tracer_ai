@@ -20,20 +20,20 @@ struct ALIGN(16) FrameBuffer {
     float3* color_buffer;
     unsigned int width;
     unsigned int height;
-    unsigned int samples_per_pixel;  // Added for accumulation
-    unsigned int max_bounces;        // Added for path tracing depth
+    unsigned int samples_per_pixel;
+    unsigned int max_bounces;
 };
 
 // Camera parameters
 struct ALIGN(16) Camera {
     float3 position;
-    float pad1;              // Ensure 16-byte alignment
+    float pad1;
     float3 direction;
-    float pad2;              // Ensure 16-byte alignment
+    float pad2;
     float3 up;
-    float pad3;              // Ensure 16-byte alignment
+    float pad3;
     float2 fov;
-    float2 pad4;             // Ensure 16-byte alignment
+    float2 pad4;
 };
 
 // Material types
@@ -46,42 +46,42 @@ enum MaterialType {
 
 // Material properties
 struct ALIGN(16) Material {
-    float3 base_color;       // Diffuse color or specular color
-    float metallic;          // 0 = dielectric, 1 = metal
-    float3 emission;         // Emission color
-    float roughness;         // Surface roughness
-    float3 f0;              // Fresnel reflection at normal incidence
-    float ior;              // Index of refraction
-    MaterialType type;      // Material type
-    float3 pad;            // Ensure 16-byte alignment
+    float3 base_color;
+    float metallic;
+    float3 emission;
+    float roughness;
+    float3 f0;
+    float ior;
+    MaterialType type;
+    float pad; // Ensure 16-byte alignment
 };
 
 // Light source
 struct ALIGN(16) Light {
-    float3 position;         // Position of the light
-    float intensity;         // Light intensity
-    float3 color;           // Light color
-    float radius;           // Light radius for soft shadows
+    float3 position;
+    float intensity;
+    float3 color;
+    float radius;
 };
 
 // Miss shader parameters
 struct ALIGN(16) MissData {
     float3 bg_color;
-    float pad;               // Ensure 16-byte alignment
+    float pad;
 };
 
 // Geometry data
 struct ALIGN(16) GeometryData {
-    float3* normals;         // Vertex normals buffer
-    Material* materials;     // Material buffer
-    Light* lights;          // Light sources
-    unsigned int num_lights; // Number of lights
+    float3* normals;
+    Light* lights;
+    unsigned int num_lights;
+    unsigned int pad;
 };
 
 // Random state
 struct ALIGN(16) RandomState {
     unsigned int seed;
-    unsigned int pad[3];     // Ensure 16-byte alignment
+    unsigned int pad[3];
 };
 
 // Launch parameters
@@ -92,8 +92,8 @@ struct ALIGN(16) LaunchParams {
     GeometryData geometry;
     RandomState random;
     OptixTraversableHandle traversable;
-    unsigned int frame_number;  // Added for temporal accumulation
-    unsigned int pad[2];       // Ensure overall 16-byte alignment
+    unsigned int frame_number;
+    unsigned int pad[2];
 };
 
 // SBT record structures
@@ -110,7 +110,6 @@ struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) HitGroupSbtRecord {
     ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
     Material material;
 };
-
 
 // Ray types
 enum RayType {
