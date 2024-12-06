@@ -133,6 +133,12 @@ struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) MissSbtRecord {
     MissData data; // Include MissData for radiance miss shader
 };
 
+struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) HitGroupSbtRecord {
+    char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+    Material material;
+};
+
+
 // Ray types
 enum RayType {
     RAY_TYPE_RADIANCE = 0,
