@@ -10,12 +10,12 @@
 // Error check/report helper for CUDA
 #define CUDA_CHECK(call)                                                  \
     do {                                                                  \
-        cudaError_t error = call;                                        \
-        if (error != cudaSuccess) {                                      \
-            std::cerr << "CUDA call '" << #call << "' failed: "          \
-                     << cudaGetErrorString(error) << std::endl;          \
-            exit(1);                                                     \
-        }                                                                \
+        cudaError_t error = call;                                         \
+        if (error != cudaSuccess) {                                       \
+            std::cerr << "CUDA call '" << #call << "' failed: "           \
+                      << cudaGetErrorString(error) << std::endl;          \
+            exit(1);                                                      \
+        }                                                                 \
     } while (0)
 
 int main() {
@@ -27,155 +27,178 @@ int main() {
         std::cout << "Creating scene..." << std::endl;
         // Create scene with a cube
         OptixScene scene;
-        
-        // Front face
-        scene.addTriangle(
-            make_float3(-1.0f, -1.0f, -1.0f),  // bottom left
-            make_float3(1.0f, -1.0f, -1.0f),   // bottom right
-            make_float3(1.0f, 1.0f, -1.0f)     // top right
-        );
-        scene.addTriangle(
-            make_float3(-1.0f, -1.0f, -1.0f),  // bottom left
-            make_float3(1.0f, 1.0f, -1.0f),    // top right
-            make_float3(-1.0f, 1.0f, -1.0f)    // top left
-        );
 
-        // Back face
-        scene.addTriangle(
-            make_float3(-1.0f, -1.0f, 1.0f),   // bottom left
-            make_float3(1.0f, 1.0f, 1.0f),     // top right
-            make_float3(1.0f, -1.0f, 1.0f)     // bottom right
-        );
-        scene.addTriangle(
-            make_float3(-1.0f, -1.0f, 1.0f),   // bottom left
-            make_float3(-1.0f, 1.0f, 1.0f),    // top left
-            make_float3(1.0f, 1.0f, 1.0f)      // top right
-        );
+        // Total number of triangles
+        const int num_triangles = 12;
 
-        // Left face
-        scene.addTriangle(
-            make_float3(-1.0f, -1.0f, -1.0f),  // front bottom
-            make_float3(-1.0f, 1.0f, -1.0f),   // front top
-            make_float3(-1.0f, 1.0f, 1.0f)     // back top
-        );
-        scene.addTriangle(
-            make_float3(-1.0f, -1.0f, -1.0f),  // front bottom
-            make_float3(-1.0f, 1.0f, 1.0f),    // back top
-            make_float3(-1.0f, -1.0f, 1.0f)    // back bottom
-        );
+        // Define materials
+        std::vector<Material> materials(num_triangles);
 
-        // Right face
-        scene.addTriangle(
-            make_float3(1.0f, -1.0f, -1.0f),   // front bottom
-            make_float3(1.0f, 1.0f, 1.0f),     // back top
-            make_float3(1.0f, 1.0f, -1.0f)     // front top
-        );
-        scene.addTriangle(
-            make_float3(1.0f, -1.0f, -1.0f),   // front bottom
-            make_float3(1.0f, -1.0f, 1.0f),    // back bottom
-            make_float3(1.0f, 1.0f, 1.0f)      // back top
-        );
-
-        // Top face
-        scene.addTriangle(
-            make_float3(-1.0f, 1.0f, -1.0f),   // front left
-            make_float3(1.0f, 1.0f, -1.0f),    // front right
-            make_float3(1.0f, 1.0f, 1.0f)      // back right
-        );
-        scene.addTriangle(
-            make_float3(-1.0f, 1.0f, -1.0f),   // front left
-            make_float3(1.0f, 1.0f, 1.0f),     // back right
-            make_float3(-1.0f, 1.0f, 1.0f)     // back left
-        );
-
-        // Bottom face
-        scene.addTriangle(
-            make_float3(-1.0f, -1.0f, -1.0f),  // front left
-            make_float3(1.0f, -1.0f, 1.0f),    // back right
-            make_float3(1.0f, -1.0f, -1.0f)    // front right
-        );
-        scene.addTriangle(
-            make_float3(-1.0f, -1.0f, -1.0f),  // front left
-            make_float3(-1.0f, -1.0f, 1.0f),   // back left
-            make_float3(1.0f, -1.0f, 1.0f)     // back right
-        );
-
-        // Set up materials
-        std::vector<Material> materials(12);  // 12 triangles total
-
-        // Front face (red diffuse)
-        materials[0] = materials[1] = {
-            make_float3(0.8f, 0.2f, 0.2f),  // base_color
-            0.0f,                           // metallic
-            make_float3(0.0f),              // emission
-            0.5f,                           // roughness
-            make_float3(0.04f),             // f0 (default for dielectrics)
-            1.5f,                           // ior
-            LAMBERTIAN                      // type
+        // Front face (red diffuse) - material index 0
+        materials[0] = {
+                make_float3(0.8f, 0.2f, 0.2f),  // base_color
+                0.0f,                           // metallic
+                make_float3(0.0f),              // emission
+                0.5f,                           // roughness
+                make_float3(0.04f),             // f0 (default for dielectrics)
+                1.5f,                           // ior
+                LAMBERTIAN,                     // type
+                0.0f                            // pad
         };
 
-        // Back face (green diffuse)
-        materials[2] = materials[3] = {
-            make_float3(0.2f, 0.8f, 0.2f),  // base_color
-            0.0f,                           // metallic
-            make_float3(0.0f),              // emission
-            0.5f,                           // roughness
-            make_float3(0.04f),             // f0
-            1.5f,                           // ior
-            LAMBERTIAN                      // type
+        // Back face (green diffuse) - material index 1
+        materials[1] = {
+                make_float3(0.2f, 0.8f, 0.2f),  // base_color
+                0.0f,                           // metallic
+                make_float3(0.0f),              // emission
+                0.5f,                           // roughness
+                make_float3(0.04f),             // f0
+                1.5f,                           // ior
+                LAMBERTIAN,                     // type
+                0.0f                            // pad
         };
 
-        // Left face (blue metal)
-        materials[4] = materials[5] = {
-            make_float3(0.2f, 0.2f, 0.8f),  // base_color
-            1.0f,                           // metallic
-            make_float3(0.0f),              // emission
-            0.1f,                           // roughness
-            make_float3(0.95f),             // f0
-            1.5f,                           // ior
-            METAL                           // type
+        // Left face (blue metal) - material index 2
+        materials[2] = {
+                make_float3(0.2f, 0.2f, 0.8f),  // base_color
+                1.0f,                           // metallic
+                make_float3(0.0f),              // emission
+                0.1f,                           // roughness
+                make_float3(0.95f),             // f0
+                1.5f,                           // ior
+                METAL,                          // type
+                0.0f                            // pad
         };
 
-        // Right face (gold metal)
-        materials[6] = materials[7] = {
-            make_float3(1.0f, 0.8f, 0.2f),  // base_color
-            1.0f,                           // metallic
-            make_float3(0.0f),              // emission
-            0.2f,                           // roughness
-            make_float3(1.0f, 0.86f, 0.57f),// f0 (gold)
-            1.5f,                           // ior
-            METAL                           // type
+        // Right face (gold metal) - material index 3
+        materials[3] = {
+                make_float3(1.0f, 0.86f, 0.57f),// base_color (gold)
+                1.0f,                           // metallic
+                make_float3(0.0f),              // emission
+                0.2f,                           // roughness
+                make_float3(1.0f, 0.86f, 0.57f),// f0 (gold)
+                1.5f,                           // ior
+                METAL,                          // type
+                0.0f                            // pad
         };
 
-        // Top face (glass)
-        materials[8] = materials[9] = {
-            make_float3(1.0f),              // base_color
-            0.0f,                           // metallic
-            make_float3(0.0f),              // emission
-            0.0f,                           // roughness
-            make_float3(0.04f),             // f0
-            1.5f,                           // ior
-            DIELECTRIC                      // type
+        // Top face (glass) - material index 4
+        materials[4] = {
+                make_float3(1.0f),              // base_color
+                0.0f,                           // metallic
+                make_float3(0.0f),              // emission
+                0.0f,                           // roughness
+                make_float3(0.04f),             // f0
+                1.5f,                           // ior
+                DIELECTRIC,                     // type
+                0.0f                            // pad
         };
 
-        // Bottom face (emissive)
-        materials[10] = materials[11] = {
-            make_float3(1.0f),              // base_color
-            0.0f,                           // metallic
-            make_float3(10.0f),             // emission (bright white)
-            0.0f,                           // roughness
-            make_float3(0.0f),              // f0
-            1.0f,                           // ior
-            EMISSIVE                        // type
+        // Bottom face (emissive) - material index 5
+        materials[5] = {
+                make_float3(1.0f),              // base_color
+                0.0f,                           // metallic
+                make_float3(10.0f),             // emission (bright white)
+                0.0f,                           // roughness
+                make_float3(0.0f),              // f0
+                1.0f,                           // ior
+                EMISSIVE,                       // type
+                0.0f                            // pad
         };
+
+        // Add triangles to the scene with appropriate material indices
+
+        // Front face (material index 0)
+        scene.addTriangle(
+                make_float3(-1.0f, -1.0f, -1.0f),  // bottom left
+                make_float3(1.0f, -1.0f, -1.0f),   // bottom right
+                make_float3(1.0f, 1.0f, -1.0f),    // top right
+                0                                   // material index
+        );
+        scene.addTriangle(
+                make_float3(-1.0f, -1.0f, -1.0f),  // bottom left
+                make_float3(1.0f, 1.0f, -1.0f),    // top right
+                make_float3(-1.0f, 1.0f, -1.0f),   // top left
+                0                                   // material index
+        );
+
+        // Back face (material index 1)
+        scene.addTriangle(
+                make_float3(-1.0f, -1.0f, 1.0f),   // bottom left
+                make_float3(1.0f, 1.0f, 1.0f),     // top right
+                make_float3(1.0f, -1.0f, 1.0f),    // bottom right
+                1                                   // material index
+        );
+        scene.addTriangle(
+                make_float3(-1.0f, -1.0f, 1.0f),   // bottom left
+                make_float3(-1.0f, 1.0f, 1.0f),    // top left
+                make_float3(1.0f, 1.0f, 1.0f),     // top right
+                1                                   // material index
+        );
+
+        // Left face (material index 2)
+        scene.addTriangle(
+                make_float3(-1.0f, -1.0f, -1.0f),  // front bottom
+                make_float3(-1.0f, 1.0f, -1.0f),   // front top
+                make_float3(-1.0f, 1.0f, 1.0f),    // back top
+                2                                   // material index
+        );
+        scene.addTriangle(
+                make_float3(-1.0f, -1.0f, -1.0f),  // front bottom
+                make_float3(-1.0f, 1.0f, 1.0f),    // back top
+                make_float3(-1.0f, -1.0f, 1.0f),   // back bottom
+                2                                   // material index
+        );
+
+        // Right face (material index 3)
+        scene.addTriangle(
+                make_float3(1.0f, -1.0f, -1.0f),   // front bottom
+                make_float3(1.0f, 1.0f, 1.0f),     // back top
+                make_float3(1.0f, 1.0f, -1.0f),    // front top
+                3                                   // material index
+        );
+        scene.addTriangle(
+                make_float3(1.0f, -1.0f, -1.0f),   // front bottom
+                make_float3(1.0f, -1.0f, 1.0f),    // back bottom
+                make_float3(1.0f, 1.0f, 1.0f),     // back top
+                3                                   // material index
+        );
+
+        // Top face (material index 4)
+        scene.addTriangle(
+                make_float3(-1.0f, 1.0f, -1.0f),   // front left
+                make_float3(1.0f, 1.0f, -1.0f),    // front right
+                make_float3(1.0f, 1.0f, 1.0f),     // back right
+                4                                   // material index
+        );
+        scene.addTriangle(
+                make_float3(-1.0f, 1.0f, -1.0f),   // front left
+                make_float3(1.0f, 1.0f, 1.0f),     // back right
+                make_float3(-1.0f, 1.0f, 1.0f),    // back left
+                4                                   // material index
+        );
+
+        // Bottom face (material index 5)
+        scene.addTriangle(
+                make_float3(-1.0f, -1.0f, -1.0f),  // front left
+                make_float3(1.0f, -1.0f, 1.0f),    // back right
+                make_float3(1.0f, -1.0f, -1.0f),   // front right
+                5                                   // material index
+        );
+        scene.addTriangle(
+                make_float3(-1.0f, -1.0f, -1.0f),  // front left
+                make_float3(-1.0f, -1.0f, 1.0f),   // back left
+                make_float3(1.0f, -1.0f, 1.0f),    // back right
+                5                                   // material index
+        );
 
         // Set up lights
         std::vector<Light> lights(1);
         lights[0] = {
-            make_float3(0.0f, 2.0f, 0.0f),  // position (above cube)
-            20.0f,                          // intensity
-            make_float3(1.0f),              // color (white)
-            0.5f                            // radius
+                make_float3(0.0f, 2.0f, 0.0f),  // position (above cube)
+                20.0f,                          // intensity
+                make_float3(1.0f),              // color (white)
+                0.5f                            // radius
         };
 
         // Upload materials and lights to scene
@@ -277,13 +300,13 @@ int main() {
         std::vector<unsigned char> rgb_buffer(width * height * 3);
         for (size_t i = 0; i < width * height; ++i) {
             const float3& pixel = color_buffer[i];
-            
+
             // Apply tone mapping
             float3 mapped;
-            mapped.x = powf(pixel.x / (1.0f + pixel.x), 1.0f/2.2f);
-            mapped.y = powf(pixel.y / (1.0f + pixel.y), 1.0f/2.2f);
-            mapped.z = powf(pixel.z / (1.0f + pixel.z), 1.0f/2.2f);
-            
+            mapped.x = powf(pixel.x / (1.0f + pixel.x), 1.0f / 2.2f);
+            mapped.y = powf(pixel.y / (1.0f + pixel.y), 1.0f / 2.2f);
+            mapped.z = powf(pixel.z / (1.0f + pixel.z), 1.0f / 2.2f);
+
             // Convert to RGB8
             rgb_buffer[i * 3 + 0] = static_cast<unsigned char>(std::max(0.0f, std::min(1.0f, mapped.x)) * 255.99f);
             rgb_buffer[i * 3 + 1] = static_cast<unsigned char>(std::max(0.0f, std::min(1.0f, mapped.y)) * 255.99f);
@@ -292,10 +315,10 @@ int main() {
             // Print some debug info for a few pixels
             if (i < 5 || i > width * height - 5) {
                 std::cout << "Pixel " << i << ": "
-                         << "HDR(" << pixel.x << ", " << pixel.y << ", " << pixel.z << ") -> "
-                         << "LDR(" << (int)rgb_buffer[i * 3 + 0] << ", "
-                                  << (int)rgb_buffer[i * 3 + 1] << ", "
-                                  << (int)rgb_buffer[i * 3 + 2] << ")\n";
+                          << "HDR(" << pixel.x << ", " << pixel.y << ", " << pixel.z << ") -> "
+                          << "LDR(" << (int)rgb_buffer[i * 3 + 0] << ", "
+                          << (int)rgb_buffer[i * 3 + 1] << ", "
+                          << (int)rgb_buffer[i * 3 + 2] << ")\n";
             }
         }
 

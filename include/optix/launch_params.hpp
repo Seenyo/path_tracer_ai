@@ -1,10 +1,12 @@
+// launch_params.hpp
+
 #pragma once
 
 #include <cuda_runtime.h>
 #include <optix.h>
 #include "../math/vec_math.hpp"
 
-// Ensure proper alignment for the launch parameters
+// Alignment macro
 #if defined(__CUDACC__) || defined(__CUDA_ARCH__)
 #define ALIGN(x) __align__(x)
 #else
@@ -84,6 +86,16 @@ struct ALIGN(16) RandomState {
     unsigned int pad[3];
 };
 
+// Payload structure
+struct ALIGN(16) Payload {
+    float3 radiance;        // 12 bytes
+    float3 throughput;      // 12 bytes
+    uint32_t seed;          // 4 bytes
+    float hit_tmax;         // 4 bytes
+    float3 next_direction;  // 12 bytes
+    float pad;              // 4 bytes to make total size 48 bytes
+};
+
 // Launch parameters
 struct ALIGN(16) LaunchParams {
     FrameBuffer frame;
@@ -93,22 +105,32 @@ struct ALIGN(16) LaunchParams {
     RandomState random;
     OptixTraversableHandle traversable;
     unsigned int frame_number;
-    unsigned int pad[2];
+    unsigned int pad1;
+    unsigned int pad2;
+    Payload* payload_buffer; // Device pointer to Payloads
 };
 
-// SBT record structures
-struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) RayGenSbtRecord {
-    ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
-};
-
-struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) MissSbtRecord {
-    ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
-    MissData data;
-};
-
-struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) HitGroupSbtRecord {
-    ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+// SBT record structures for radiance and shadow
+struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) RadianceHitGroupSbtRecord {
+    char header[OPTIX_SBT_RECORD_HEADER_SIZE];
     Material material;
+};
+
+struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) ShadowHitGroupSbtRecord {
+    char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+    // No additional data needed for shadow hitgroups
+};
+
+// Ray Generation SBT Record
+struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) RayGenSbtRecord {
+    char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+    // No additional data needed for raygen
+};
+
+// Miss SBT Record
+struct ALIGN(OPTIX_SBT_RECORD_ALIGNMENT) MissSbtRecord {
+    char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+    MissData data; // Include MissData for radiance miss shader
 };
 
 // Ray types

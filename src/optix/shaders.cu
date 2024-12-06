@@ -1,3 +1,5 @@
+// shaders.cu
+
 #include <optix.h>
 #include "../include/optix/launch_params.hpp"
 #include "../include/math/vec_math.hpp"
@@ -5,8 +7,18 @@
 // Enable printf in device code
 #include <stdio.h>
 
-extern "C" {
-__constant__ LaunchParams launch_params;
+extern "C" __constant__ LaunchParams launch_params;
+
+// Helper functions to pack and unpack pointers
+static __forceinline__ __device__ void packPointer(void* ptr, uint32_t& u0, uint32_t& u1) {
+    const uint64_t uptr = reinterpret_cast<uint64_t>(ptr);
+    u0 = static_cast<uint32_t>(uptr >> 32);
+    u1 = static_cast<uint32_t>(uptr & 0xFFFFFFFF);
+}
+
+static __forceinline__ __device__ void* unpackPointer(uint32_t u0, uint32_t u1) {
+    const uint64_t uptr = (static_cast<uint64_t>(u0) << 32) | static_cast<uint64_t>(u1);
+    return reinterpret_cast<void*>(uptr);
 }
 
 // Random number generation using PCG
@@ -39,27 +51,6 @@ static __forceinline__ __device__ float schlick(float cosine, float ref_idx) {
     return r0 + (1.0f - r0) * powf((1.0f - cosine), 5.0f);
 }
 
-// Helper functions to pack and unpack pointers
-static __forceinline__ __device__ void packPointer(void* ptr, uint32_t& u0, uint32_t& u1) {
-    const uint64_t uptr = reinterpret_cast<uint64_t>(ptr);
-    u0 = static_cast<uint32_t>(uptr >> 32);
-    u1 = static_cast<uint32_t>(uptr & 0xFFFFFFFF);
-}
-
-static __forceinline__ __device__ void* unpackPointer(uint32_t u0, uint32_t u1) {
-    const uint64_t uptr = (static_cast<uint64_t>(u0) << 32) | static_cast<uint64_t>(u1);
-    return reinterpret_cast<void*>(uptr);
-}
-
-// Payload structure
-struct Payload {
-    float3 radiance;
-    float3 throughput;
-    uint32_t seed;
-    float hit_tmax;
-    float3 next_direction;  // Add this member
-};
-
 // Ray generation program
 extern "C" __global__ void __raygen__pinhole() {
     // Get launch index
@@ -67,7 +58,13 @@ extern "C" __global__ void __raygen__pinhole() {
     const uint3 dim = optixGetLaunchDimensions();
 
     // Calculate pixel index
-    const unsigned int pixel_idx = idx.y * dim.x + idx.x;
+    const size_t pixel_idx = static_cast<size_t>(idx.y) * dim.x + idx.x;
+
+    // Ensure pixel_idx is within bounds
+    if (pixel_idx >= (static_cast<size_t>(dim.x) * dim.y)) {
+        // Optionally, print an error or skip
+        return;
+    }
 
     // Initialize random state as uint32_t
     uint32_t seed = launch_params.random.seed + pixel_idx + launch_params.frame_number * 1000000;
@@ -94,68 +91,44 @@ extern "C" __global__ void __raygen__pinhole() {
             up * (ndc.y * tan_fov_y)
     );
 
-    // Initialize path state
+    // Initialize ray origin
     float3 ray_origin = launch_params.camera.position;
-    float3 accumulated_radiance = make_float3(0.0f);
-    float3 throughput = make_float3(1.0f);
-    uint32_t depth = 0;
 
-    // Path tracing loop
-    while (depth < launch_params.frame.max_bounces) {
-        // Initialize payload
-        Payload payload;
-        payload.radiance = make_float3(0.0f);
-        payload.throughput = throughput;
-        payload.seed = seed;
-        payload.hit_tmax = 0.0f;
-        payload.next_direction = make_float3(0.0f);  // Initialize
+    // Retrieve the Payload pointer for this pixel from the payload_buffer
+    Payload* payload = launch_params.payload_buffer + pixel_idx;
 
-        // Pack the pointer to the payload into two unsigned ints
-        uint32_t u0, u1;
-        packPointer(&payload, u0, u1);
+    // Initialize Payload
+    payload->radiance = make_float3(0.0f);
+    payload->throughput = make_float3(1.0f);
+    payload->seed = seed;
+    payload->hit_tmax = 0.0f;
+    payload->next_direction = make_float3(0.0f);
 
-        // Trace the ray, passing the payload pointer
-        optixTrace(
-                launch_params.traversable,
-                ray_origin,
-                ray_direction,
-                0.001f,                // tmin
-                1e16f,                 // tmax
-                0.0f,                  // rayTime
-                OptixVisibilityMask(1),
-                OPTIX_RAY_FLAG_NONE,
-                RAY_TYPE_RADIANCE,     // SBT offset
-                RAY_TYPE_COUNT,        // SBT stride
-                RAY_TYPE_RADIANCE,     // missSBTIndex
-                u0, u1                 // Payloads
-        );
+    // Pack the pointer into two uint32_t values
+    uint32_t u0, u1;
+    packPointer(payload, u0, u1);
 
-        // Accumulate radiance
-        accumulated_radiance += payload.radiance * throughput;
+    // Trace the ray, passing the payload pointer
+    optixTrace(
+            launch_params.traversable,
+            ray_origin,
+            ray_direction,
+            0.001f,                // tmin
+            1e16f,                 // tmax
+            0.0f,                  // rayTime
+            OptixVisibilityMask(1),
+            OPTIX_RAY_FLAG_NONE,
+            RAY_TYPE_RADIANCE,     // SBT offset
+            2,                     // SBT stride (since numPayloadValues=2)
+            RAY_TYPE_RADIANCE,     // missSBTIndex
+            u0, u1                 // Payloads
+    );
 
-        // Update throughput for the next bounce
-        throughput *= payload.throughput;
+    // Accumulate radiance
+    float3 ray_radiance = payload->radiance;
+    float3 ray_throughput = payload->throughput;
 
-        // Update seed
-        seed = payload.seed;
-
-        // Update ray origin and direction
-        ray_origin = ray_origin + ray_direction * payload.hit_tmax;
-        ray_direction = payload.hit_tmax > 0.0f ? payload.next_direction : make_float3(0.0f);
-
-        // Russian roulette termination
-        float max_component = fmaxf(throughput.x, fmaxf(throughput.y, throughput.z));
-        if (max_component < 0.01f || depth >= launch_params.frame.max_bounces) {
-            break;
-        }
-
-        if (random_float(seed) > max_component) {
-            break;
-        }
-        throughput /= max_component;
-
-        depth++;
-    }
+    float3 accumulated_radiance = ray_radiance * ray_throughput;
 
     // Write final accumulated radiance to the color buffer
     if (launch_params.frame_number == 0) {
@@ -182,8 +155,13 @@ extern "C" __global__ void __miss__radiance() {
 
 // Miss program for shadow rays
 extern "C" __global__ void __miss__shadow() {
+    // Retrieve payload
+    uint32_t u0 = optixGetPayload_0();
+    uint32_t u1 = optixGetPayload_1();
+    Payload* payload = reinterpret_cast<Payload*>(unpackPointer(u0, u1));
+
     // Light is visible if miss is reached
-    optixSetPayload_0(0u);
+    payload->hit_tmax = 0.0f; // Indicate no occlusion
 }
 
 // Closest hit program for radiance rays
@@ -194,7 +172,7 @@ extern "C" __global__ void __closesthit__radiance() {
     Payload* payload = reinterpret_cast<Payload*>(unpackPointer(u0, u1));
 
     // Retrieve the SBT data
-    const HitGroupSbtRecord* hitgroup_data = reinterpret_cast<HitGroupSbtRecord*>(optixGetSbtDataPointer());
+    const RadianceHitGroupSbtRecord* hitgroup_data = reinterpret_cast<RadianceHitGroupSbtRecord*>(optixGetSbtDataPointer());
     const Material& material = hitgroup_data->material;
 
     // Get hit point information
@@ -217,10 +195,9 @@ extern "C" __global__ void __closesthit__radiance() {
     const float3 nl = faceforward(n, -ray_direction);
 
     // Initialize variables for next bounce
-    float3 next_origin = p + nl * 0.001f;  // Offset to avoid self-intersection
-    float3 next_direction = make_float3(0.0f);
     float3 emitted_radiance = make_float3(0.0f);
     float3 direct_lighting = make_float3(0.0f);
+    float3 next_direction = make_float3(0.0f);
 
     // Handle material interaction
     switch (material.type) {
@@ -250,9 +227,9 @@ extern "C" __global__ void __closesthit__radiance() {
                         0.0f,
                         OptixVisibilityMask(1),
                         OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT,
-                        RAY_TYPE_SHADOW,  // SBT offset for shadow rays
-                        RAY_TYPE_COUNT,   // SBT stride
-                        RAY_TYPE_SHADOW,  // missSBTIndex for shadow rays
+                        RAY_TYPE_SHADOW,   // SBT offset for shadow rays
+                        2,                 // SBT stride
+                        RAY_TYPE_SHADOW,   // missSBTIndex for shadow rays
                         occluded
                 );
 
@@ -312,6 +289,9 @@ extern "C" __global__ void __closesthit__radiance() {
             payload->seed = pcg_random(payload->seed);
             break;
         }
+        default:
+            // Handle unknown material types if necessary
+            break;
     }
 
     // Update payload radiance
@@ -330,6 +310,11 @@ extern "C" __global__ void __closesthit__radiance() {
 
 // Closest hit program for shadow rays
 extern "C" __global__ void __closesthit__shadow() {
+    // Retrieve payload
+    uint32_t u0 = optixGetPayload_0();
+    uint32_t u1 = optixGetPayload_1();
+    Payload* payload = reinterpret_cast<Payload*>(unpackPointer(u0, u1));
+
     // Intersection found, light is occluded
-    optixSetPayload_0(1u);
+    payload->hit_tmax = 1e16f; // Indicate occlusion by setting hit_tmax to a large value
 }

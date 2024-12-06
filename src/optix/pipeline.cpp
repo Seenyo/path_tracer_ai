@@ -1,3 +1,5 @@
+// pipeline.cpp
+
 #include <memory>
 #include <fstream>
 #include <iostream>
@@ -29,35 +31,22 @@
 // Error check/report helper for CUDA
 #define CUDA_CHECK(call)                                                  \
     do {                                                                  \
-        cudaError_t error = call;                                        \
-        if (error != cudaSuccess) {                                      \
+        cudaError_t error = call;                                         \
+        if (error != cudaSuccess) {                                       \
             std::stringstream ss;                                        \
             ss << "CUDA call '" << #call << "' failed: "                 \
-               << cudaGetErrorString(error);                             \
+               << cudaGetErrorString(error) << std::endl;                \
             throw std::runtime_error(ss.str());                          \
-        }                                                                \
+        }                                                                 \
     } while (0)
-
-// PathTracerPipeline implementation
-PathTracerPipeline::PathTracerPipeline() : impl(nullptr) {}
-PathTracerPipeline::~PathTracerPipeline() = default;
-
-void PathTracerPipeline::initialize(const std::vector<Material>& materials) {
-    impl = std::make_unique<OptixPipelineImpl>(materials);
-    impl->initialize();
-}
-
-void PathTracerPipeline::render(const LaunchParams& params) {
-    impl->render(params);
-}
-
-OptixDeviceContext PathTracerPipeline::getContext() const {
-    return impl->getContext();
-}
 
 // OptixPipelineImpl implementation
 OptixPipelineImpl::OptixPipelineImpl(const std::vector<Material>& scene_materials)
-        : materials(scene_materials), context(nullptr), pipeline(nullptr), stream(nullptr) {}
+        : materials(scene_materials), context(0), pipeline(0), stream(0),
+          raygen_prog_group(nullptr), miss_prog_groups{nullptr, nullptr},
+          hitgroup_prog_groups{nullptr, nullptr},
+          d_raygen_record(0), d_miss_record(0),
+          d_hitgroup_record(0), module(0), payload_buffer(nullptr) {}
 
 OptixPipelineImpl::~OptixPipelineImpl() {
     cleanup();
@@ -66,15 +55,55 @@ OptixPipelineImpl::~OptixPipelineImpl() {
 void OptixPipelineImpl::cleanup() {
     if (pipeline) {
         OPTIX_CHECK(optixPipelineDestroy(pipeline));
-        pipeline = nullptr;
+        pipeline = 0;
+    }
+    if (module) {
+        OPTIX_CHECK(optixModuleDestroy(module));
+        module = 0;
+    }
+    if (raygen_prog_group) {
+        OPTIX_CHECK(optixProgramGroupDestroy(raygen_prog_group));
+        raygen_prog_group = nullptr;
+    }
+    if (miss_prog_groups[0]) {
+        OPTIX_CHECK(optixProgramGroupDestroy(miss_prog_groups[0]));
+        miss_prog_groups[0] = nullptr;
+    }
+    if (miss_prog_groups[1]) {
+        OPTIX_CHECK(optixProgramGroupDestroy(miss_prog_groups[1]));
+        miss_prog_groups[1] = nullptr;
+    }
+    if (hitgroup_prog_groups[0]) {
+        OPTIX_CHECK(optixProgramGroupDestroy(hitgroup_prog_groups[0]));
+        hitgroup_prog_groups[0] = nullptr;
+    }
+    if (hitgroup_prog_groups[1]) {
+        OPTIX_CHECK(optixProgramGroupDestroy(hitgroup_prog_groups[1]));
+        hitgroup_prog_groups[1] = nullptr;
+    }
+    if (d_raygen_record != 0) {
+        CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_raygen_record)));
+        d_raygen_record = 0;
+    }
+    if (d_miss_record != 0) {
+        CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_miss_record)));
+        d_miss_record = 0;
+    }
+    if (d_hitgroup_record != 0) {
+        CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_hitgroup_record)));
+        d_hitgroup_record = 0;
+    }
+    if (payload_buffer != nullptr) {
+        CUDA_CHECK(cudaFree(payload_buffer));
+        payload_buffer = nullptr;
     }
     if (context) {
         OPTIX_CHECK(optixDeviceContextDestroy(context));
-        context = nullptr;
+        context = 0;
     }
     if (stream) {
         CUDA_CHECK(cudaStreamDestroy(stream));
-        stream = nullptr;
+        stream = 0;
     }
 }
 
@@ -99,6 +128,38 @@ void OptixPipelineImpl::initialize() {
 
     // Create CUDA stream
     CUDA_CHECK(cudaStreamCreate(&stream));
+}
+
+PathTracerPipeline::PathTracerPipeline()
+        : impl(nullptr) // Initialize the unique_ptr to nullptr
+{
+    // Constructor does not perform initialization
+}
+
+PathTracerPipeline::~PathTracerPipeline() {
+    // Destructor automatically cleans up the unique_ptr
+}
+
+void PathTracerPipeline::initialize(const std::vector<Material>& materials) {
+    if (impl) {
+        throw std::runtime_error("PathTracerPipeline has already been initialized.");
+    }
+    impl = std::make_unique<OptixPipelineImpl>(materials);
+    impl->initialize();
+}
+
+void PathTracerPipeline::render(const LaunchParams& params) {
+    if (!impl) {
+        throw std::runtime_error("PathTracerPipeline is not initialized.");
+    }
+    impl->render(params);
+}
+
+OptixDeviceContext PathTracerPipeline::getContext() const {
+    if (!impl) {
+        throw std::runtime_error("PathTracerPipeline is not initialized.");
+    }
+    return impl->getContext();
 }
 
 void OptixPipelineImpl::context_log_cb(unsigned int level, const char* tag, const char* message, void*) {
@@ -192,7 +253,7 @@ void OptixPipelineImpl::createModule() {
     pipeline_compile_options = {};
     pipeline_compile_options.usesMotionBlur = false;
     pipeline_compile_options.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_GAS;
-    pipeline_compile_options.numPayloadValues = 2;  // Reduced since we're using payload pointers
+    pipeline_compile_options.numPayloadValues = 2; // Two 32-bit payload values (pointer)
     pipeline_compile_options.numAttributeValues = 2;
     pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "launch_params";
@@ -220,8 +281,6 @@ void OptixPipelineImpl::createModule() {
 
     std::cout << "OptiX module created successfully." << std::endl;
 }
-
-// ... Other includes and code ...
 
 void OptixPipelineImpl::createProgramGroups() {
     // Program group for ray generation
@@ -255,7 +314,7 @@ void OptixPipelineImpl::createProgramGroups() {
     hitgroup_prog_group_descs[0].hitgroup.moduleIS = nullptr;
     hitgroup_prog_group_descs[0].hitgroup.entryFunctionNameIS = nullptr;
 
-    // Shadow hit group (no closest hit program)
+    // Shadow hit group
     hitgroup_prog_group_descs[1].kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
     hitgroup_prog_group_descs[1].hitgroup.moduleCH = module;
     hitgroup_prog_group_descs[1].hitgroup.entryFunctionNameCH = "__closesthit__shadow";
@@ -281,6 +340,10 @@ void OptixPipelineImpl::createProgramGroups() {
             &raygen_prog_group
     ));
 
+    if (sizeof_log > 1) {
+        std::cout << "Raygen Program Group Log: " << log << std::endl;
+    }
+
     // Create miss program groups
     OPTIX_CHECK(optixProgramGroupCreate(
             context,
@@ -292,6 +355,10 @@ void OptixPipelineImpl::createProgramGroups() {
             miss_prog_groups
     ));
 
+    if (sizeof_log > 1) {
+        std::cout << "Miss Program Group Log: " << log << std::endl;
+    }
+
     // Create hitgroup program groups
     OPTIX_CHECK(optixProgramGroupCreate(
             context,
@@ -302,60 +369,12 @@ void OptixPipelineImpl::createProgramGroups() {
             &sizeof_log,
             hitgroup_prog_groups
     ));
-}
 
-void OptixPipelineImpl::createSBT() {
-    // Create raygen records
-    RayGenSbtRecord raygen_record = {};
-    OPTIX_CHECK(optixSbtRecordPackHeader(raygen_prog_group, &raygen_record));
-    // No additional data for raygen record
-
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_raygen_record), sizeof(RayGenSbtRecord)));
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_raygen_record), &raygen_record, sizeof(RayGenSbtRecord), cudaMemcpyHostToDevice));
-
-    // Create miss records
-    MissSbtRecord miss_records[2] = {};
-    // Radiance miss record
-    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[0], &miss_records[0]));
-    miss_records[0].data.bg_color = make_float3(0.0f, 0.0f, 0.0f); // You can set your desired background color here
-
-    // Shadow miss record
-    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[1], &miss_records[1]));
-    // No additional data for shadow miss record
-
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_miss_record), sizeof(MissSbtRecord) * 2));
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_miss_record), miss_records, sizeof(MissSbtRecord) * 2, cudaMemcpyHostToDevice));
-
-    // Create hitgroup records
-    size_t num_materials = materials.size();
-    std::vector<HitGroupSbtRecord> hitgroup_records(num_materials * RAY_TYPE_COUNT);
-
-    for (size_t i = 0; i < num_materials; ++i) {
-        // Radiance hit group record
-        HitGroupSbtRecord& radiance_record = hitgroup_records[i * RAY_TYPE_COUNT + RAY_TYPE_RADIANCE];
-        OPTIX_CHECK(optixSbtRecordPackHeader(hitgroup_prog_groups[RAY_TYPE_RADIANCE], &radiance_record));
-        radiance_record.material = materials[i];
-
-        // Shadow hit group record
-        HitGroupSbtRecord& shadow_record = hitgroup_records[i * RAY_TYPE_COUNT + RAY_TYPE_SHADOW];
-        OPTIX_CHECK(optixSbtRecordPackHeader(hitgroup_prog_groups[RAY_TYPE_SHADOW], &shadow_record));
-        // No material data needed for shadow rays
+    if (sizeof_log > 1) {
+        std::cout << "Hitgroup Program Group Log: " << log << std::endl;
     }
 
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_hitgroup_record), sizeof(HitGroupSbtRecord) * hitgroup_records.size()));
-    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_hitgroup_record), hitgroup_records.data(), sizeof(HitGroupSbtRecord) * hitgroup_records.size(), cudaMemcpyHostToDevice));
-
-    // Initialize SBT
-    sbt = {};
-    sbt.raygenRecord = d_raygen_record;
-
-    sbt.missRecordBase = d_miss_record;
-    sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
-    sbt.missRecordCount = 2;
-
-    sbt.hitgroupRecordBase = d_hitgroup_record;
-    sbt.hitgroupRecordStrideInBytes = sizeof(HitGroupSbtRecord);
-    sbt.hitgroupRecordCount = static_cast<unsigned int>(hitgroup_records.size());
+    std::cout << "Program groups created successfully." << std::endl;
 }
 
 void OptixPipelineImpl::createPipeline() {
@@ -368,7 +387,8 @@ void OptixPipelineImpl::createPipeline() {
     };
 
     OptixPipelineLinkOptions pipeline_link_options = {};
-    pipeline_link_options.maxTraceDepth = 5;  // Allow for multiple bounces
+    pipeline_link_options.maxTraceDepth = 10;  // Allow for multiple bounces
+    // Removed 'debugLevel' as it is not a member of OptixPipelineLinkOptions
 
     char log[2048];
     size_t sizeof_log = sizeof(log);
@@ -399,61 +419,140 @@ void OptixPipelineImpl::createPipeline() {
     std::cout << "Pipeline created successfully" << std::endl;
 }
 
-//void OptixPipelineImpl::createSBT() {
-//    // Create raygen records
-//    RayGenSbtRecord raygen_record = {};
-//    OPTIX_CHECK(optixSbtRecordPackHeader(raygen_prog_group, &raygen_record));
-//    // No additional data for raygen record
-//
-//    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_raygen_record), sizeof(RayGenSbtRecord)));
-//    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_raygen_record), &raygen_record, sizeof(RayGenSbtRecord), cudaMemcpyHostToDevice));
-//
-//    // Create miss records
-//    MissSbtRecord miss_records[2] = {};
-//    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[0], &miss_records[0]));
-//    // Set miss data if needed (e.g., background color)
-//
-//    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[1], &miss_records[1]));
-//    // Set miss data for shadow rays if needed
-//
-//    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_miss_record), sizeof(MissSbtRecord) * 2));
-//    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_miss_record), miss_records, sizeof(MissSbtRecord) * 2, cudaMemcpyHostToDevice));
-//
-//    // Create hitgroup records
-//    size_t num_materials = materials.size();
-//    std::vector<HitGroupSbtRecord> hitgroup_records(num_materials);
-//
-//    for (size_t i = 0; i < num_materials; ++i) {
-//        HitGroupSbtRecord& record = hitgroup_records[i];
-//        // Use the appropriate program group
-//        OPTIX_CHECK(optixSbtRecordPackHeader(hitgroup_prog_groups[0], &record));
-//        // Assign the material to the SBT record
-//        record.material = materials[i];
-//    }
-//
-//    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_hitgroup_record), sizeof(HitGroupSbtRecord) * num_materials));
-//    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_hitgroup_record), hitgroup_records.data(), sizeof(HitGroupSbtRecord) * num_materials, cudaMemcpyHostToDevice));
-//
-//    // Initialize SBT
-//    sbt = {};
-//    sbt.raygenRecord = d_raygen_record;
-//    sbt.missRecordBase = d_miss_record;
-//    sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
-//    sbt.missRecordCount = 2;
-//    sbt.hitgroupRecordBase = d_hitgroup_record;
-//    sbt.hitgroupRecordStrideInBytes = sizeof(HitGroupSbtRecord);
-//    sbt.hitgroupRecordCount = static_cast<unsigned int>(num_materials);
-//
-//    std::cout << "Shader Binding Table created successfully" << std::endl;
-//}
+void OptixPipelineImpl::allocatePayloadBuffer(unsigned int width, unsigned int height) {
+    size_t num_pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+    size_t payload_size = sizeof(Payload) * num_pixels;
+
+    // Allocate device memory for Payloads
+    CUDA_CHECK(cudaMalloc(&payload_buffer, payload_size));
+
+    // Initialize Payloads to zero
+    CUDA_CHECK(cudaMemset(payload_buffer, 0, payload_size));
+
+    std::cout << "Payload buffer allocated and initialized (" << num_pixels << " Payloads)" << std::endl;
+}
+
+void OptixPipelineImpl::createSBT() {
+    // Create raygen records
+    RayGenSbtRecord raygen_record = {};
+    OPTIX_CHECK(optixSbtRecordPackHeader(raygen_prog_group, &raygen_record));
+    // No additional data for raygen record
+
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_raygen_record), sizeof(RayGenSbtRecord)));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_raygen_record), &raygen_record, sizeof(RayGenSbtRecord), cudaMemcpyHostToDevice));
+
+    // Create miss records
+    MissSbtRecord miss_records[2] = {};
+    // Radiance miss record
+    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[0], &miss_records[0]));
+    miss_records[0].data.bg_color = make_float3(0.0f, 0.0f, 0.2f); // Set background color (dark blue)
+
+    // Shadow miss record
+    OPTIX_CHECK(optixSbtRecordPackHeader(miss_prog_groups[1], &miss_records[1]));
+    // No additional data for shadow miss record
+
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_miss_record), sizeof(MissSbtRecord) * 2));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_miss_record), miss_records, sizeof(MissSbtRecord) * 2, cudaMemcpyHostToDevice));
+
+    // Create hitgroup records
+    size_t num_materials = materials.size();
+    std::vector<RadianceHitGroupSbtRecord> radiance_hitgroup_records(num_materials);
+    std::vector<ShadowHitGroupSbtRecord> shadow_hitgroup_records(num_materials);
+
+    for (size_t i = 0; i < num_materials; ++i) {
+        // Radiance hit group record
+        RadianceHitGroupSbtRecord& radiance_record = radiance_hitgroup_records[i];
+        OPTIX_CHECK(optixSbtRecordPackHeader(hitgroup_prog_groups[RAY_TYPE_RADIANCE], &radiance_record));
+        radiance_record.material = materials[i];
+
+        // Shadow hit group record
+        ShadowHitGroupSbtRecord& shadow_record = shadow_hitgroup_records[i];
+        OPTIX_CHECK(optixSbtRecordPackHeader(hitgroup_prog_groups[RAY_TYPE_SHADOW], &shadow_record));
+        // No additional data for shadow hitgroup
+    }
+
+    // Allocate and copy radiance hitgroup records to device memory
+    CUdeviceptr d_radiance_hitgroup_records;
+    size_t radiance_size = sizeof(RadianceHitGroupSbtRecord) * radiance_hitgroup_records.size();
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_radiance_hitgroup_records), radiance_size));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_radiance_hitgroup_records), radiance_hitgroup_records.data(), radiance_size, cudaMemcpyHostToDevice));
+
+    // Allocate and copy shadow hitgroup records to device memory
+    CUdeviceptr d_shadow_hitgroup_records;
+    size_t shadow_size = sizeof(ShadowHitGroupSbtRecord) * shadow_hitgroup_records.size();
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_shadow_hitgroup_records), shadow_size));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_shadow_hitgroup_records), shadow_hitgroup_records.data(), shadow_size, cudaMemcpyHostToDevice));
+
+    // Combine radiance and shadow hitgroup records into a single buffer
+    size_t total_hitgroup_records = radiance_hitgroup_records.size() + shadow_hitgroup_records.size();
+    size_t combined_hitgroup_size = radiance_size + shadow_size;
+
+    CUdeviceptr d_combined_hitgroup_records;
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_combined_hitgroup_records), combined_hitgroup_size));
+
+    // Copy all hitgroup records into the combined buffer
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_combined_hitgroup_records), radiance_hitgroup_records.data(), radiance_size, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(reinterpret_cast<void*>(d_combined_hitgroup_records + radiance_size), shadow_hitgroup_records.data(), shadow_size, cudaMemcpyHostToDevice));
+
+    // Initialize SBT
+    sbt = {};
+
+    sbt.raygenRecord = d_raygen_record;
+
+    sbt.missRecordBase = d_miss_record;
+    sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
+    sbt.missRecordCount = 2;
+
+    sbt.hitgroupRecordBase = d_combined_hitgroup_records;
+    sbt.hitgroupRecordStrideInBytes = sizeof(RadianceHitGroupSbtRecord); // Assuming uniform stride
+    sbt.hitgroupRecordCount = static_cast<unsigned int>(total_hitgroup_records);
+
+    // Debug: Output HitGroup SBT Records
+    std::cout << "HitGroup SBT Records (" << total_hitgroup_records << " records):" << std::endl;
+    for (size_t i = 0; i < radiance_hitgroup_records.size(); ++i) {
+        const RadianceHitGroupSbtRecord& record = radiance_hitgroup_records[i];
+        std::cout << "SBT Record " << i << " (Radiance): Material Type = " << record.material.type << std::endl;
+    }
+    for (size_t i = 0; i < shadow_hitgroup_records.size(); ++i) {
+        const ShadowHitGroupSbtRecord& record = shadow_hitgroup_records[i];
+        std::cout << "SBT Record " << (radiance_hitgroup_records.size() + i) << " (Shadow): No Material" << std::endl;
+    }
+
+    std::cout << "Shader Binding Table created successfully" << std::endl;
+}
+
+
+OptixDeviceContext OptixPipelineImpl::getContext() const {
+    return context;
+}
 
 void OptixPipelineImpl::render(const LaunchParams& params) {
-    std::cout << "Starting render..." << std::endl;
+    // Allocate Payload Buffer if not already allocated or if dimensions have changed
+    static unsigned int last_width = 0;
+    static unsigned int last_height = 0;
+    if (params.frame.width != last_width || params.frame.height != last_height || payload_buffer == nullptr) {
+        if (payload_buffer != nullptr) {
+            CUDA_CHECK(cudaFree(payload_buffer));
+            payload_buffer = nullptr;
+        }
+        allocatePayloadBuffer(params.frame.width, params.frame.height);
+        last_width = params.frame.width;
+        last_height = params.frame.height;
+    }
 
+    // Allocate and copy LaunchParams to device
     void* d_params;
     CUDA_CHECK(cudaMalloc(&d_params, sizeof(LaunchParams)));
-    CUDA_CHECK(cudaMemcpy(d_params, &params, sizeof(LaunchParams), cudaMemcpyHostToDevice));
 
+    // Update LaunchParams with the device pointer to Payload buffer
+    LaunchParams host_params = params;
+    host_params.payload_buffer = payload_buffer;
+
+    CUDA_CHECK(cudaMemcpy(d_params, &host_params, sizeof(LaunchParams), cudaMemcpyHostToDevice));
+
+    std::cout << "Launching OptiX pipeline..." << std::endl;
+
+    // Launch the pipeline
     OPTIX_CHECK(optixLaunch(
             pipeline,
             stream,
@@ -465,12 +564,11 @@ void OptixPipelineImpl::render(const LaunchParams& params) {
             1                     // Launch depth
     ));
 
+    // Synchronize the stream to ensure completion
     CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    // Free LaunchParams memory
     CUDA_CHECK(cudaFree(d_params));
 
-    std::cout << "Render completed" << std::endl;
-}
-
-OptixDeviceContext OptixPipelineImpl::getContext() const {
-    return context;
+    std::cout << "Render completed successfully" << std::endl;
 }
