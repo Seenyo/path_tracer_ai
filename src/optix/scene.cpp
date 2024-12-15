@@ -192,6 +192,7 @@ void OptixScene::buildAcceleration(OptixDeviceContext context) {
 
     std::vector<uint32_t> triangle_flags(num_sbt_records, OPTIX_GEOMETRY_FLAG_NONE);
     build_input.triangleArray.flags = triangle_flags.data();
+    build_input.triangleArray.numSbtRecords = num_sbt_records;
     // IMPORTANT: Adjust numSbtRecords to materials.size() * RAY_TYPE_COUNT
     build_input.triangleArray.numSbtRecords = static_cast<unsigned int>(materials.size() * RAY_TYPE_COUNT);
     build_input.triangleArray.sbtIndexOffsetBuffer = d_sbt_index_buffer;
